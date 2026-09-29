@@ -25,23 +25,26 @@ SOURCE_NAME = "RFEP - hockeypatines.fep.es"
 SOURCE_URL = "https://www.hockeypatines.fep.es/league/2477"
 LEAGUE_URL = "https://www.hockeypatines.fep.es/league/3150"
 
-# Noms oficials exactes com apareixen a la font (Jornada 26, 01/05),
-# amb ciutat, província i comarca (Catalunya).
+# Clubs de la Parlem OK Lliga 2025/26.
+# Convenció: canonical_name = nom del club SENSE patrocinador;
+# el nom amb patrocinador (el que apareix a la font) es registra a
+# club_name amb is_sponsor_name=true i vigència de la temporada.
+# Tuple: (canonical_name, nom_a_la_font_2025, ciutat, província, comarca)
 EQUIPS_2025_26 = [
-    ("BARÇA", "Barcelona", "Barcelona", "Barcelonès"),
-    ("ADISS HOCKEY RIVAS", "Rivas-Vaciamadrid", "Madrid", None),
-    ("IGUALADA RIGAT HC", "Igualada", "Barcelona", "Anoia"),
-    ("CP VOLTREGA MOVIMENTO STERN", "Vic", "Barcelona", "Osona"),
-    ("INNOAESTHETICS HC SANT JUST", "Sant Just Desvern", "Barcelona", "Baix Llobregat"),
-    ("SHUM FRIT RAVICH", "Manresa", "Barcelona", "Bages"),
-    ("HOCKEY CLUB LICEO", "la Corunya", "la Corunya", None),
-    ("AITEX PAS ALCOI", "Alcoi", "Alacant", None),
-    ("REUS DEPORTIU BRASILIA", "Reus", "Tarragona", "Baix Camp"),
-    ("PONS LLEIDA", "Lleida", "Lleida", "Segrià"),
-    ("CE NOIA FREIXENET", "Sant Sadurní d'Anoia", "Barcelona", "Alt Penedès"),
-    ("CH CALDES RECAM LÀSER", "Caldes de Montbui", "Barcelona", "Vallès Oriental"),
-    ("CALAFELL LA MENORQUINA", "Calafell", "Tarragona", "Baix Penedès"),
-    ("CERDANYOLA CLUB D'HOQUEI", "Cerdanyola del Vallès", "Barcelona", "Vallès Occidental"),
+    ("FC BARCELONA", "BARÇA", "Barcelona", "Barcelona", "Barcelonès"),
+    ("ADISS HOCKEY RIVAS", "ADISS HOCKEY RIVAS", "Rivas-Vaciamadrid", "Madrid", None),
+    ("IGUALADA HC", "IGUALADA RIGAT HC", "Igualada", "Barcelona", "Anoia"),
+    ("CP VOLTREGA", "CP VOLTREGA MOVIMENTO STERN", "Vic", "Barcelona", "Osona"),
+    ("HC SANT JUST", "INNOAESTHETICS HC SANT JUST", "Sant Just Desvern", "Barcelona", "Baix Llobregat"),
+    ("SHUM MAÇANET", "SHUM FRIT RAVICH", "Maçanet de la Selva", "Girona", "Selva"),
+    ("HOCKEY CLUB LICEO", "HOCKEY CLUB LICEO", "la Corunya", "la Corunya", None),
+    ("AITEX PAS ALCOI", "AITEX PAS ALCOI", "Alcoi", "Alacant", None),
+    ("REUS DEPORTIU", "REUS DEPORTIU BRASILIA", "Reus", "Tarragona", "Baix Camp"),
+    ("LLEIDA LLISTA BLAVA", "PONS LLEIDA", "Lleida", "Lleida", "Segrià"),
+    ("CE NOIA FREIXENET", "CE NOIA FREIXENET", "Sant Sadurní d'Anoia", "Barcelona", "Alt Penedès"),
+    ("CH CALDES", "CH CALDES RECAM LÀSER", "Caldes de Montbui", "Barcelona", "Vallès Oriental"),
+    ("CP CALAFELL", "CALAFELL LA MENORQUINA", "Calafell", "Tarragona", "Baix Penedès"),
+    ("CERDANYOLA CLUB D'HOQUEI", "CERDANYOLA CLUB D'HOQUEI", "Cerdanyola del Vallès", "Barcelona", "Vallès Occidental"),
 ]
 
 # Únic resultat de classificació confirmat per la font (notícia 04/05/2026)
@@ -86,18 +89,20 @@ def main(dsn: str) -> None:
             )
 
             club_ids = {}
-            for nom, ciutat, provincia, comarca in EQUIPS_2025_26:
+            for canonic, nom_font, ciutat, provincia, comarca in EQUIPS_2025_26:
                 club_id = db.upsert_club(
-                    nom, city=ciutat, province=provincia, comarca=comarca
+                    canonic, city=ciutat, province=provincia, comarca=comarca
                 )
+                # El nom amb patrocinador com a nom històric de la temporada;
+                # si coincideix amb el canònic també es registra (harmless).
                 db.add_club_name(
                     club_id,
-                    nom,
+                    nom_font,
                     valid_from=VIGENCIA_2025_26[0],
                     valid_until=VIGENCIA_2025_26[1],
                     is_sponsor_name=True,
                 )
-                club_ids[nom] = club_id
+                club_ids[canonic] = club_id
 
                 c = db.conn.cursor()
                 c.execute(
