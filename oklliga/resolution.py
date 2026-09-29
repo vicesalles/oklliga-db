@@ -116,7 +116,7 @@ class NameResolver:
         prefixes = [" ".join(tokens[:i]) for i in range(len(tokens), 0, -1)]
         c = self.conn.cursor()
         # La mateixa normalitzacio que la BD, aplicada a canonical_name
-        canon_norm = """lower(regexp_replace(
+        canon_norm = r"""lower(regexp_replace(
             regexp_replace(name, '[^[:alnum:] ]', '', 'g'), '\s+', ' ', 'g'
         ))"""
         c.execute(
