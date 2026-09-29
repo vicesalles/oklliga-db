@@ -86,6 +86,11 @@ cp .env.example .env            # i ajusta OKLLIGA_DSN (mai el commitegis)
 createdb oklliga
 psql -d oklliga -f sql/01_schema.sql
 python scripts/seed_2025_26.py  # llegirà OKLLIGA_DSN del .env
+
+# Per actualitzar una base de dades ja existent a noves versions de
+# l'esquema (aplica només les migracions pendents, en ordre):
+python scripts/migrate.py          # llegirà OKLLIGA_DSN del .env
+python scripts/migrate.py --status  # mostra què hi ha aplicat i què falta
 ```
 
 Les credencials van totes al fitxer `.env` (vegeu `.env.example`):
