@@ -58,6 +58,7 @@ CREATE TABLE club (
     canonical_name text NOT NULL UNIQUE,    -- nom de referència actual (ex: 'Igualada Rigat HC')
     city       text,
     province   text,
+    comarca    text,                        -- comarca (Catalunya); NULL fora de Catalunya
     founded_on date,
     dissolved_on date,
     notes      text,

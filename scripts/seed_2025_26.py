@@ -25,22 +25,23 @@ SOURCE_NAME = "RFEP - hockeypatines.fep.es"
 SOURCE_URL = "https://www.hockeypatines.fep.es/league/2477"
 LEAGUE_URL = "https://www.hockeypatines.fep.es/league/3150"
 
-# Noms oficials exactes com apareixen a la font (Jornada 26, 01/05).
+# Noms oficials exactes com apareixen a la font (Jornada 26, 01/05),
+# amb ciutat, província i comarca (Catalunya).
 EQUIPS_2025_26 = [
-    "BARÇA",
-    "ADISS HOCKEY RIVAS",
-    "IGUALADA RIGAT HC",
-    "CP VOLTREGA MOVIMENTO STERN",
-    "INNOAESTHETICS HC SANT JUST",
-    "SHUM FRIT RAVICH",
-    "HOCKEY CLUB LICEO",
-    "AITEX PAS ALCOI",
-    "REUS DEPORTIU BRASILIA",
-    "PONS LLEIDA",
-    "CE NOIA FREIXENET",
-    "CH CALDES RECAM LÀSER",
-    "CALAFELL LA MENORQUINA",
-    "CERDANYOLA CLUB D'HOQUEI",
+    ("BARÇA", "Barcelona", "Barcelona", "Barcelonès"),
+    ("ADISS HOCKEY RIVAS", "Rivas-Vaciamadrid", "Madrid", None),
+    ("IGUALADA RIGAT HC", "Igualada", "Barcelona", "Anoia"),
+    ("CP VOLTREGA MOVIMENTO STERN", "Vic", "Barcelona", "Osona"),
+    ("INNOAESTHETICS HC SANT JUST", "Sant Just Desvern", "Barcelona", "Baix Llobregat"),
+    ("SHUM FRIT RAVICH", "Manresa", "Barcelona", "Bages"),
+    ("HOCKEY CLUB LICEO", "la Corunya", "la Corunya", None),
+    ("AITEX PAS ALCOI", "Alcoi", "Alacant", None),
+    ("REUS DEPORTIU BRASILIA", "Reus", "Tarragona", "Baix Camp"),
+    ("PONS LLEIDA", "Lleida", "Lleida", "Segrià"),
+    ("CE NOIA FREIXENET", "Sant Sadurní d'Anoia", "Barcelona", "Alt Penedès"),
+    ("CH CALDES RECAM LÀSER", "Caldes de Montbui", "Barcelona", "Vallès Oriental"),
+    ("CALAFELL LA MENORQUINA", "Calafell", "Tarragona", "Baix Penedès"),
+    ("CERDANYOLA CLUB D'HOQUEI", "Cerdanyola del Vallès", "Barcelona", "Vallès Occidental"),
 ]
 
 # Únic resultat de classificació confirmat per la font (notícia 04/05/2026)
@@ -85,8 +86,10 @@ def main(dsn: str) -> None:
             )
 
             club_ids = {}
-            for nom in EQUIPS_2025_26:
-                club_id = db.upsert_club(nom)
+            for nom, ciutat, provincia, comarca in EQUIPS_2025_26:
+                club_id = db.upsert_club(
+                    nom, city=ciutat, province=provincia, comarca=comarca
+                )
                 db.add_club_name(
                     club_id,
                     nom,

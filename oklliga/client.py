@@ -73,8 +73,8 @@ class OkLligaDB:
         c = cur or self.conn.cursor()
         c.execute(
             """
-            INSERT INTO club (canonical_name, city, province, founded_on, notes)
-            VALUES (%(canonical_name)s, %(city)s, %(province)s, %(founded_on)s, %(notes)s)
+            INSERT INTO club (canonical_name, city, province, comarca, founded_on, notes)
+            VALUES (%(canonical_name)s, %(city)s, %(province)s, %(comarca)s, %(founded_on)s, %(notes)s)
             ON CONFLICT (canonical_name) DO NOTHING
             RETURNING club_id
             """,
@@ -82,6 +82,7 @@ class OkLligaDB:
                 "canonical_name": canonical_name,
                 "city": fields.get("city"),
                 "province": fields.get("province"),
+                "comarca": fields.get("comarca"),
                 "founded_on": fields.get("founded_on"),
                 "notes": fields.get("notes"),
             },
