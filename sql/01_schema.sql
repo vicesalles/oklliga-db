@@ -6,8 +6,9 @@
 --      camps opcionals, granularitat per estat de partit).
 --   2. Renombrat d'equips per sponsors (entity persistent + historial de
 --      noms amb rang de vigència).
---   3. Canvis de nom de la competició (competició persistent + historial
---      de noms per temporada).
+--   3. Canvis de nom de cada competició (competició persistent + historial
+--      de noms per temporada). Una entitat per categoria: OK Lliga (màxima)
+--      i OK Lliga Plata (segona) són competicions DIFERENTS.
 --   4. Extensibilitat: statistics en JSONB tipat amb check constraints.
 -- =====================================================================
 
@@ -72,20 +73,22 @@ CREATE INDEX idx_club_name_club ON club_name (club_id);
 
 CREATE TABLE competition (
     competition_id  serial PRIMARY KEY,
+    tier            smallint NOT NULL,         -- 1 = OK Lliga (màxima), 2 = OK Lliga Plata (segona)...
     sport           text NOT NULL DEFAULT 'hoquei patins',
     country         text NOT NULL DEFAULT 'Espanya',
-    notes           text
+    notes           text,
+    UNIQUE (tier, sport, country)             -- una entitat per categoria
 );
 
--- Noms de la competició per temporada: Divisió d'Honor -> OK Lliga,
--- OK Lliga Plata, etc.
+-- Historial de noms de CADA competició:
+--   tier 1: Divisió d'Honor -> OK Lliga
+--   tier 2: Primera Divisió -> OK Lliga Plata
 CREATE TABLE competition_name (
     competition_name_id serial PRIMARY KEY,
     competition_id      integer NOT NULL REFERENCES competition(competition_id) ON DELETE CASCADE,
     name                text NOT NULL,
     valid_from_season   integer NOT NULL,   -- any d'inici de la temporada (2026 = 2026/27)
     valid_until_season  integer,           -- NULL = vigent
-    tier                smallint NOT NULL DEFAULT 1,  -- 1 = màxima categoria, 2 = OK Lliga Plata...
     CONSTRAINT competition_name_dates CHECK (valid_until_season IS NULL OR valid_until_season >= valid_from_season)
 );
 

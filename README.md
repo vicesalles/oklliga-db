@@ -10,7 +10,7 @@ noms de la competició), pensat per a futures operacions de mineria de dades.
 |---|---|
 | **Dades escasses en el passat** | Camps opcionals (`matchday_date`, gols per temps...), `source_id` + `source_url` per traçabilitat, i `confidence` (`unknown/low/medium/high`) a cada fila per ponderar les dades a la mineria. Les restriccions només exigeixen marcador si l'estat és `played`. |
 | **Equips que canvien de nom per sponsors** | `club` és l'entitat persistent; `club_name` guarda l'historial de noms amb `valid_from`/`valid_until` i flag `is_sponsor_name`. Hormipresa Igualada HC i Igualada Rigat HC són dues files de `club_name` amb el mateix `club_id`. La vista `v_match_with_names` resol automàticament el nom vigent en la data de cada partit. |
-| **La competició canvia de nom** | `competition` és l'entitat persistent; `competition_name` guarda els noms per rang de temporades (Divisió d'Honor → OK Lliga) i `season_competition` fixa el nom usat a cada temporada concreta. |
+| **La competició canvia de nom** | `competition` és l'entitat persistent, **una per categoria** (OK Lliga i OK Lliga Plata són competicions diferents, mai noms d'una mateixa); `competition_name` guarda els noms per rang de temporades (Divisió d'Honor → OK Lliga; Primera Divisió → OK Lliga Plata) i `season_competition` fixa el nom usat a cada temporada concreta. |
 
 ## Model (resum)
 

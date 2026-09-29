@@ -13,16 +13,22 @@ INSERT INTO club_name (club_id, name, valid_from, valid_until, is_sponsor_name) 
     (1, 'Igualada Rigat HC', '2003-07-01', NULL, true),
     (2, 'Reus Deportiu', '1940-01-01', NULL, false);
 
-INSERT INTO competition (competition_id, notes) VALUES (1, 'Màxima categoria estatal hoquei patins');
-INSERT INTO competition_name (competition_id, name, valid_from_season, valid_until_season, tier) VALUES
-    (1, 'Divisió d''Honor', 1965, 2001, 1),
-    (1, 'OK Lliga', 2002, NULL, 1);
+-- Dues competicions DIFERENTS: màxima categoria i segona categoria
+INSERT INTO competition (competition_id, tier, notes) VALUES
+    (1, 1, 'Màxima categoria estatal'),
+    (2, 2, 'Segona categoria estatal');
+INSERT INTO competition_name (competition_id, name, valid_from_season, valid_until_season) VALUES
+    (1, 'Divisió d''Honor', 1965, 2001),
+    (1, 'OK Lliga', 2002, NULL),
+    (2, 'Primera Divisió', 1965, 2001),
+    (2, 'OK Lliga Plata', 2002, NULL);
 
 INSERT INTO season (start_year, label) VALUES (2002, '2002/03'), (2026, '2026/27');
 
 INSERT INTO season_competition (competition_id, season_id, name_used) VALUES
-    (1, 1, 'OK Lliga'),           -- La 02/03 ja era OK Lliga (context test)
-    (1, 2, 'OK Lliga');
+    (1, 1, 'OK Lliga'),
+    (1, 2, 'OK Lliga'),
+    (2, 2, 'OK Lliga Plata');      -- segona divisió, entitat diferent
 
 INSERT INTO match (season_competition_id, round, stage, matchday_date, status,
                    home_club_id, away_club_id, home_goals, away_goals,
@@ -42,7 +48,9 @@ COMMIT;
 -- Comprovacions
 SELECT 'match_count' AS check_name, count(*)::text AS value FROM match
 UNION ALL
-SELECT 'same_club_2_names', count(DISTINCT club_id)::text FROM club_name;
+SELECT 'same_club_2_names', count(DISTINCT club_id)::text FROM club_name
+UNION ALL
+SELECT 'distinct_competitions', count(*)::text FROM competition;
 
 -- La vista ha de mostrar Hormipresa el 2002 i Rigat el 2026
 SELECT season, home_name_used, away_name_used, home_goals, away_goals, confidence
