@@ -16,6 +16,8 @@
 
 BEGIN;
 
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 -- ---------------------------------------------------------------------
 -- 1. DOMINIS I ENUMERACIONS
 -- ---------------------------------------------------------------------
@@ -69,15 +71,68 @@ CREATE TABLE club_name (
     club_name_id serial PRIMARY KEY,
     club_id      integer NOT NULL REFERENCES club(club_id) ON DELETE CASCADE,
     name         text NOT NULL,
+    -- Normalització determinista: minúscules, sense accents, espais col·lapsats.
+    -- La BD garanteix que no hi hagi dos noms idèntics per normalització.
+    name_normalized text GENERATED ALWAYS AS (
+        lower(regexp_replace(
+            regexp_replace(name, '[^[:alnum:] ]', '', 'g'), '\\s+', ' ', 'g'
+        ))
+    ) STORED,
     valid_from   date,        -- NULL = origen desconegut
     valid_until  date,        -- NULL = vigent
     is_sponsor_name boolean NOT NULL DEFAULT false,
-    CONSTRAINT club_name_dates CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
+    CONSTRAINT club_name_dates CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from),
+    -- Un club no pot tenir dos noms amb vigència coneguda solapada.
+    -- Les dates NULL = "desconegut", no "infinit": no participa en el check.
+    CONSTRAINT club_name_no_overlap EXCLUDE USING gist (
+        club_id WITH =,
+        daterange(valid_from, valid_until, '[]') WITH &&
+    ) WHERE (valid_from IS NOT NULL),
+    -- Un mateix nom normalitzat no pot pertànyer a dos clubs mai
+    -- (rangs desconeguts compten com a infinit: és el cas ambigu, el
+    -- més perillós, i queda prohibit).
+    CONSTRAINT club_name_unique_norm EXCLUDE USING gist (
+        name_normalized WITH =,
+        daterange(
+            COALESCE(valid_from, '-infinity'::date),
+            COALESCE(valid_until, 'infinity'::date), '[]'
+        ) WITH &&
+    )
 );
 
 -- Índex per resoldre "quin club és aquest nom?" durant l'scraping
 CREATE INDEX idx_club_name_name ON club_name (name);
+CREATE INDEX idx_club_name_norm ON club_name (name_normalized);
 CREATE INDEX idx_club_name_club ON club_name (club_id);
+
+-- Cua de resolució de noms: cap insert de club des de scraping es fa a cegues.
+-- Els noms que el connector no sap resoldre van aquí i un humà els classifica.
+CREATE TABLE pending_name_resolution (
+    pending_id    serial PRIMARY KEY,
+    raw_name      text NOT NULL,
+    context       jsonb,          -- temporada, competició, enfrontaments...
+    status        text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'resolved', 'rejected')),
+    proposed_club_id integer REFERENCES club(club_id),
+    resolved_club_id integer REFERENCES club(club_id),
+    created_new_club  boolean,
+    resolved_by   text,
+    resolved_at   timestamp,
+    source_id     integer REFERENCES source(source_id),
+    notes         text
+);
+
+CREATE INDEX idx_pending_status ON pending_name_resolution (status);
+
+-- Log de fusions de clubs: correcció auditada i reversible en auditoria
+CREATE TABLE club_merge_log (
+    merge_id         serial PRIMARY KEY,
+    merged_club_id   integer NOT NULL,   -- club erroni (desactivat)
+    kept_club_id     integer NOT NULL,   -- club correcte (subsisteix)
+    merged_at        timestamp NOT NULL DEFAULT now(),
+    merged_by        text,
+    reason           text
+);
 
 -- ---------------------------------------------------------------------
 -- 3. COMPETICIÓ: entitat persistent amb historial de noms

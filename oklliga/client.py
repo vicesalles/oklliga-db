@@ -34,7 +34,9 @@ class OkLligaDB:
 
     def connect(self) -> None:
         if self._conn is None or self._conn.closed:
-            self._conn = psycopg.connect(self._conninfo, row_factory=dict_row)
+            self._conn = psycopg.connect(
+                self._conninfo, row_factory=dict_row, autocommit=True
+            )
 
     def close(self) -> None:
         if self._conn is not None and not self._conn.closed:
@@ -115,6 +117,9 @@ class OkLligaDB:
         )
         row = c.fetchone()
         if row is None:
+            # L'insert ha xocat amb una EXCLUDE (solapament de vigència o
+            # nom duplicat entre clubs). Reintenta sense rang temporal per
+            # mantenir idempotència amb noms ja registrats sense dates.
             c.execute(
                 """
                 SELECT club_name_id FROM club_name
@@ -122,7 +127,14 @@ class OkLligaDB:
                 """,
                 (club_id, name),
             )
-            row = c.fetchone()
+            existing = c.fetchone()
+            if existing is not None:
+                return existing["club_name_id"]
+            raise psycopg.errors.ExclusionViolation(
+                f"No es pot registrar el nom '{name}' per al club {club_id}: "
+                "solapa la vigència d'un altre nom del mateix club o el nom "
+                "pertany a un altre club en el mateix període"
+            )
         return row["club_name_id"]
 
     def resolve_club(self, name: str, on_date: Optional[date] = None) -> Optional[int]:
@@ -228,7 +240,12 @@ class OkLligaDB:
         label = f"{start_year}/{str(start_year + 1)[-2:]}"
         c = self.conn.cursor()
         c.execute(
-            "INSERT INTO season (start_year, label) VALUES (%s, %s) RETURNING season_id",
+            """
+            INSERT INTO season (start_year, label)
+            VALUES (%s, %s)
+            ON CONFLICT (start_year) DO UPDATE SET label = EXCLUDED.label
+            RETURNING season_id
+            """,
             (start_year, label),
         )
         return c.fetchone()["season_id"]
@@ -280,6 +297,10 @@ class OkLligaDB:
         }
         extra = {k: v for k, v in fields.items() if k in allowed}
         c = self.conn.cursor()
+        with self.conn.transaction():
+            return self._upsert_match_stmt(c, season_competition_id, home_club_id, away_club_id, extra)
+
+    def _upsert_match_stmt(self, c, season_competition_id, home_club_id, away_club_id, extra):
         c.execute(
             """
             INSERT INTO match (
@@ -360,7 +381,7 @@ class OkLligaDB:
                 f"UPDATE match SET {cols} WHERE match_id = %(match_id)s",
                 {**extra, "match_id": existing["match_id"]},
             )
-        return existing["match_id"]
+            return existing["match_id"]
 
     # ------------------------------------------------------------------ esdeveniments
 

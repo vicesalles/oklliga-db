@@ -29,6 +29,31 @@ player ──< match_player >── match    (alineació: titularitat, minuts)
 match ──< match_event >── player     (gols, targetes blaves/vermelles, lesions...)
 ```
 
+## Robustesa de la identitat de club (invariant crítica)
+
+La invariant "una identitat, noms variables" es defensa en quatre capes:
+
+1. **La BD impedeix la inconsistència** (`sql/01_schema.sql`):
+   - `club_name.name_normalized` (columna generada): normalització determinista
+     (minúscules, sense accents/puntuació, espais col·lapsats).
+   - `club_name_no_overlap` (EXCLUDE GiST): un club no pot tenir dos noms amb
+     vigència coneguda solapada. Dates NULL = "desconegut", no "infinit".
+   - `club_name_unique_norm` (EXCLUDE GiST): un mateix nom normalitzat no pot
+     pertànyer a dos clubs en rangs solapats (rangs desconeguts compten com a
+     infinit: el cas ambigu queda prohibit).
+2. **Resolució assistida, mai a cegues** (`oklliga/resolution.py`,
+   `NameResolver`): `resolve_club` retorna `None` → el nom va a
+   `pending_name_resolution` amb context i candidats proposats per
+   similaritat (prefixos creixents + LIKE). L'humà decideix entre opcions
+   (`resolve_as_existing` / `resolve_as_new_club` / `reject`) i la decisió
+   queda persistida com a àlies: cada nom ambigu es decideix UNA sola vegada.
+3. **Auditoria** (`oklliga/audit.py`, `ClubAuditor.detect_suspect_clubs`):
+   clubs sense noms, clubs sense partits, noms canònics duplicats entre
+   clubs. Cap càrrega massiva es dóna per bona sense passar l'auditoria.
+4. **Correció auditada** (`ClubAuditor.merge_clubs`): fusió atòmica que
+   reassigna totes les FK, elimina els partits entre les dues identitats
+   (simulacres), neteja noms duplicats i registra tot a `club_merge_log`.
+
 ## Jugadors i esdeveniments
 
 - `player` és l'entitat persistent amb el mateix patró que els clubs: `player_name`

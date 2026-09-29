@@ -6,6 +6,8 @@ només cal adaptar aquest connector.
 """
 
 from .client import OkLligaDB
+from .resolution import NameResolver
+from .audit import ClubAuditor
 
-__all__ = ["OkLligaDB"]
+__all__ = ["OkLligaDB", "NameResolver", "ClubAuditor"]
 __version__ = "0.1.0"

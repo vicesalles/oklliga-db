@@ -97,12 +97,12 @@ def test_competition_season_flow(dsn):
 
 def test_match_upsert_and_events(dsn):
     with OkLligaDB(dsn) as db:
-        igualada = db.upsert_club("Igualada Rigat HC")
-        reus = db.upsert_club("Reus Deportiu", city="Reus")
+        igualada = db.upsert_club("Igualada Rigat HC MatchTest")
+        reus = db.upsert_club("Reus Deportiu MatchTest", city="Reus")
 
         ok = db.upsert_competition(1)
         season = db.upsert_season(2002)
-        sc = db.season_competition_id(ok, season, "OK Lliga")
+        sc = db.season_competition_id(ok, season, "OK Lliga MatchTest")
 
         m1 = db.upsert_match(
             sc, igualada, reus,
@@ -121,9 +121,10 @@ def test_match_upsert_and_events(dsn):
         assert ev > 0
         db.add_match_event(m1, reus, "blue_card", minute=41, half=1, value_num=2)
 
-        matches = db.matches_by_season(2002)
+        matches = [m for m in db.matches_by_season(2002)
+                   if m["competition_name"] == "OK Lliga MatchTest"]
         assert len(matches) == 1
-        assert matches[0]["home_name_used"] == "Igualada Rigat HC"
+        assert matches[0]["home_name_used"] == "Igualada Rigat HC MatchTest"
         assert matches[0]["home_goals"] == 3
 
 
