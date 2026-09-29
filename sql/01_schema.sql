@@ -53,7 +53,7 @@ CREATE TABLE source (
 
 CREATE TABLE club (
     club_id     serial PRIMARY KEY,
-    canonical_name text NOT NULL,           -- nom de referència actual (ex: 'Igualada Rigat HC')
+    canonical_name text NOT NULL UNIQUE,    -- nom de referència actual (ex: 'Igualada Rigat HC')
     city       text,
     province   text,
     founded_on date,
@@ -174,6 +174,13 @@ CREATE TABLE match (
         OR (status <> 'played')
     )
 );
+
+-- Unicitat natural d'un partit dins d'una temporada de competició:
+-- mateixa jornada (si coneguda) o, si no, mateixa data i enfrontament.
+CREATE UNIQUE INDEX uq_match_sc_round ON match (season_competition_id, home_club_id, away_club_id, round)
+    WHERE round IS NOT NULL;
+CREATE UNIQUE INDEX uq_match_sc_date ON match (season_competition_id, home_club_id, away_club_id, matchday_date)
+    WHERE round IS NULL AND matchday_date IS NOT NULL;
 
 CREATE INDEX idx_match_sc_date ON match (season_competition_id, matchday_date);
 CREATE INDEX idx_match_home ON match (home_club_id);

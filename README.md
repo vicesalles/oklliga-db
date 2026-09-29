@@ -62,10 +62,56 @@ psql -d oklliga -f sql/01_schema.sql
 psql -d oklliga -f sql/02_test.sql   # prova de validació
 ```
 
+## Connector Python
+
+El package `oklliga` és la capa d'accés estable a la base de dades: l'scraper
+només parla amb aquest connector, mai amb SQL directe. Si l'esquema evoluciona,
+només cal adaptar el connector.
+
+```python
+from oklliga import OkLligaDB
+
+db = OkLligaDB("postgresql://user:pass@localhost/oklliga")
+with db:
+    # clubs i noms històrics
+    club = db.upsert_club("Igualada Rigat HC", city="Igualada")
+    db.add_club_name(club, "Hormipresa Igualada HC",
+                     valid_from="2000-07-01", valid_until="2003-06-30",
+                     is_sponsor_name=True)
+
+    # resoldre un nom de la font al club_id (retorna None si no es pot)
+    club_id = db.resolve_club("Hormipresa Igualada HC", on_date="2002-11-09")
+
+    # competició, temporada i partit (upserts idempotents)
+    comp = db.upsert_competition(1)               # tier 1 = OK Lliga
+    season = db.upsert_season(2002)               # 2002 = 2002/03
+    sc = db.season_competition_id(comp, season, "OK Lliga")
+    m = db.upsert_match(sc, home, away, round=5,
+                        matchday_date="2002-11-09",
+                        home_goals=3, away_goals=1)
+
+    # esdeveniments
+    db.add_match_event(m, home, "goal", player_id=..., minute=12, half=1)
+
+    # consultes de mineria
+    for match in db.matches_by_season(2002):
+        print(match["home_name_used"], match["home_goals"])
+```
+
+Instal·lació i tests:
+
+```bash
+pip install -e ".[test]"
+OKLLIGA_ADMIN_DSN="postgresql://postgres:pass@localhost/postgres" python -m pytest tests/ -v
+```
+
+Els tests creen i destrueixen una base de dades temporal (`oklliga_connector_test`)
+i hi carreguen l'esquema complet des de zero.
+
 ## Passos següents (extracció)
 
 1. Identificar els endpoints/HTML de la web de la RFEP per temporada i jornada.
-2. Scraper amb resolució de noms d'equip contra `club_name` (diccionari
-   nom_històric → `club_id`, amb coincidència exacta i difusa).
+2. Scraper desacoblat: parseja HTML → diccionaris Python → crides al connector
+   `OkLligaDB`. Cap SQL a l'scraper; les reexecucions són segures (upserts).
 3. Ingesta per temporades, marcant `confidence` segons la qualitat de la font.
 4. Validació creuada de marcador i classificacions (`participation.points`).
