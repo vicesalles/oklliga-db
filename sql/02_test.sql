@@ -43,7 +43,46 @@ INSERT INTO team_match_stat (match_id, club_id, is_home, stat_key, value_num, co
     (1, 1, true, 'shots', 28, 'high'),
     (1, 2, false, 'shots', 15, 'medium');
 
+-- Jugadors: trajectòria i participació en el partit de 2002
+INSERT INTO player (full_name, position) VALUES
+    ('Marc Torras', 'davanter'),
+    ('Albert Casanova', 'porter');
+
+INSERT INTO player_name (player_id, name) VALUES
+    (1, 'Marc Torras Gras');
+
+INSERT INTO squad_membership (player_id, club_id, valid_from, valid_until, confidence) VALUES
+    (1, 1, '2000-07-01', '2005-06-30', 'high'),
+    (1, 2, '2005-07-01', NULL, 'high'),
+    (2, 1, '1998-07-01', NULL, 'medium');
+
+INSERT INTO match_player (match_id, club_id, player_id, is_starter, minutes_played, is_goalkeeper, confidence) VALUES
+    (1, 1, 1, true, 50, false, 'high'),
+    (1, 1, 2, true, 50, true, 'medium');
+
+INSERT INTO match_event (match_id, club_id, player_id, event_type, minute, half, value_num, confidence) VALUES
+    (1, 1, 1, 'goal', 12, 1, NULL, 'high'),
+    (1, 1, 1, 'penalty_goal', 34, 1, NULL, 'high'),
+    (1, 2, NULL, 'blue_card', 41, 1, 2, 'low'),
+    (1, 2, NULL, 'goal', 28, 1, NULL, 'medium');
+
 COMMIT;
+
+-- Comprovacions jugador/esdeveniments
+SELECT 'player_count' AS check_name, count(*)::text AS value FROM player
+UNION ALL
+SELECT 'torras_goals_2002', count(*)::text FROM match_event
+    WHERE player_id = 1 AND event_type IN ('goal','penalty_goal','free_kick_goal')
+    AND match_id = 1
+UNION ALL
+SELECT 'torras_squad_changes', count(*)::text FROM squad_membership WHERE player_id = 1;
+
+-- Màxims goleadors ficticis del test (consulta de mineria exemple)
+SELECT p.full_name, count(*) AS goals
+FROM match_event me
+JOIN player p ON p.player_id = me.player_id
+WHERE me.event_type IN ('goal','penalty_goal','free_kick_goal')
+GROUP BY p.full_name ORDER BY goals DESC;
 
 -- Comprovacions
 SELECT 'match_count' AS check_name, count(*)::text AS value FROM match

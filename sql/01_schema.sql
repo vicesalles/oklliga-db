@@ -10,6 +10,8 @@
 --      de noms per temporada). Una entitat per categoria: OK Lliga (màxima)
 --      i OK Lliga Plata (segona) són competicions DIFERENTS.
 --   4. Extensibilitat: statistics en JSONB tipat amb check constraints.
+--   5. Jugadors i esdeveniments de partit (gols, targetes) amb el mateix
+--      patró: identitat persistent + historial de noms + confidence.
 -- =====================================================================
 
 BEGIN;
@@ -27,6 +29,16 @@ CREATE TYPE match_status AS ENUM (
     'cancelled'    -- cancel·lat / anul·lat
 );
 CREATE TYPE confidence_level AS ENUM ('unknown', 'low', 'medium', 'high');
+CREATE TYPE match_event_type AS ENUM (
+    'goal',            -- gol normal
+    'penalty_goal',    -- gol de penalti
+    'free_kick_goal',  -- gol de falta directa
+    'own_goal',        -- gol en pròpia porta
+    'blue_card',      -- targeta blava (2 min, específic hoquei patins)
+    'red_card',       -- targeta vermella
+    'injury',         -- lesió
+    'goalkeeper_change' -- canvi de porter
+);
 -- Descripció de la font: web federació, premsa, hemeroteca, manual...
 CREATE TABLE source (
     source_id     serial PRIMARY KEY,
@@ -203,7 +215,91 @@ CREATE TABLE team_match_stat (
 );
 
 -- ---------------------------------------------------------------------
--- 8. VISTA: partits amb noms històrics correctes per temporada
+-- 8. JUGADORS: mateix patró que clubs (entitat persistent + historial
+--    de noms) i vincle temporal club-jugador (plantilles/fitxatges)
+-- ---------------------------------------------------------------------
+
+CREATE TABLE player (
+    player_id    serial PRIMARY KEY,
+    full_name    text NOT NULL,             -- nom de referència actual
+    birth_date   date,                       -- sovint desconegut en dades antigues
+    position     text,                       -- 'porter', 'defensa', 'davanter'...
+    handedness   text,                       -- 'esquerra', 'dreta'
+    notes        text
+);
+
+-- Historial de noms del jugador (transliteracions, àlies, canvis documentats)
+CREATE TABLE player_name (
+    player_name_id serial PRIMARY KEY,
+    player_id      integer NOT NULL REFERENCES player(player_id) ON DELETE CASCADE,
+    name           text NOT NULL,
+    valid_from     date,
+    valid_until    date,
+    CONSTRAINT player_name_dates CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
+);
+
+CREATE INDEX idx_player_name_name ON player_name (name);
+CREATE INDEX idx_player_name_player ON player_name (player_id);
+
+-- Fitxatges: quin jugador pertany a quin club i quan (trajectòria completa)
+CREATE TABLE squad_membership (
+    squad_membership_id serial PRIMARY KEY,
+    player_id           integer NOT NULL REFERENCES player(player_id),
+    club_id             integer NOT NULL REFERENCES club(club_id),
+    valid_from          date,                -- NULL = origen desconegut
+    valid_until         date,                -- NULL = vigent
+    source_id           integer REFERENCES source(source_id),
+    confidence          confidence_level NOT NULL DEFAULT 'high',
+    CONSTRAINT squad_membership_dates CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from)
+);
+
+CREATE INDEX idx_squad_membership_player ON squad_membership (player_id);
+CREATE INDEX idx_squad_membership_club ON squad_membership (club_id);
+
+-- ---------------------------------------------------------------------
+-- 8b. PARTICIPACIÓ EN PARTIT i ESDEVENIMENTS
+-- ---------------------------------------------------------------------
+
+-- Participació d'un jugador en un partit concret (alineació)
+CREATE TABLE match_player (
+    match_player_id serial PRIMARY KEY,
+    match_id        integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
+    club_id         integer NOT NULL REFERENCES club(club_id),
+    player_id       integer NOT NULL REFERENCES player(player_id),
+    is_starter      boolean,
+    minutes_played  smallint,
+    is_goalkeeper   boolean,
+    source_id       integer REFERENCES source(source_id),
+    confidence      confidence_level NOT NULL DEFAULT 'high',
+    UNIQUE (match_id, player_id)
+);
+
+CREATE INDEX idx_match_player_player ON match_player (player_id);
+CREATE INDEX idx_match_player_match ON match_player (match_id);
+
+-- Esdeveniments del partit amb ordre temporal i detall extensible
+CREATE TABLE match_event (
+    match_event_id serial PRIMARY KEY,
+    match_id       integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
+    club_id        integer NOT NULL REFERENCES club(club_id),    -- equip que genera l'esdeveniment
+    player_id      integer REFERENCES player(player_id),          -- NULL si no es coneix
+    event_type     match_event_type NOT NULL,
+    minute         smallint,                                     -- minut de joc (escàs en dades antigues)
+    half           smallint CHECK (half IN (1, 2)),
+    value_num      numeric,                                      -- ex: minuts de sanció (2, 5, 10)
+    value_json     jsonb,                                        -- detalls extensors
+    source_id      integer REFERENCES source(source_id),
+    source_url     text,
+    confidence     confidence_level NOT NULL DEFAULT 'high',
+    notes          text
+);
+
+CREATE INDEX idx_match_event_match ON match_event (match_id, minute);
+CREATE INDEX idx_match_event_player ON match_event (player_id);
+CREATE INDEX idx_match_event_type ON match_event (event_type);
+
+-- ---------------------------------------------------------------------
+-- 9. VISTA: partits amb noms històrics correctes per temporada
 --    Resol automàticament el nom que cada club usava en el moment del partit.
 -- ---------------------------------------------------------------------
 

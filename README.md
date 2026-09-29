@@ -22,7 +22,25 @@ season_competition ──< participation >── club
 season_competition ──< match >── club (local/visitant)
 match ──< match_stat          (JSONB extensibles, àmbit partit)
 match ──< team_match_stat    (JSONB extensibles, àmbit equip-partit)
+
+player ──< player_name               (entitat + historial de noms)
+player ──< squad_membership >── club  (trajectòria: fitxatges amb dates)
+player ──< match_player >── match    (alineació: titularitat, minuts)
+match ──< match_event >── player     (gols, targetes blaves/vermelles, lesions...)
 ```
+
+## Jugadors i esdeveniments
+
+- `player` és l'entitat persistent amb el mateix patró que els clubs: `player_name`
+  guarda àlies i transliteracions per resoldre noms durant l'scraping.
+- `squad_membership` registra la trajectòria completa (quin club, des de/quan fins),
+  també útil per saber quin nom d'equip cal mostrar en cada època.
+- `match_player` és l'alineació d'un partit concret (titular, minuts, porter).
+- `match_event` emmagatzema els esdeveniments ordenats temporalment amb un
+  `match_event_type` (gol, penalti, falta directa, pròpia porta, targeta blava —
+  específica de l'hoquei patins —, vermella, lesió, canvi de porter) i camps
+  extensibles `value_num`/`value_json` per detalls futurs (minuts de sanció,
+  assistències...). `player_id` pot ser `NULL` quan la font antiga no el identifica.
 
 ## Estadístiques extensibles
 
