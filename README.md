@@ -82,10 +82,16 @@ migracions d'esquema, i que les dades antigues simplement tinguin menys claus.
 ## Ús
 
 ```bash
+cp .env.example .env            # i ajusta OKLLIGA_DSN (mai el commitegis)
 createdb oklliga
 psql -d oklliga -f sql/01_schema.sql
-psql -d oklliga -f sql/02_test.sql   # prova de validació
+python scripts/seed_2025_26.py  # llegirà OKLLIGA_DSN del .env
 ```
+
+Les credencials van totes al fitxer `.env` (vegeu `.env.example`):
+`OKLLIGA_DSN` per a l'ús normal i `OKLLIGA_ADMIN_DSN` per als tests
+d'integració. L'entorn (`export OKLLIGA_DSN=...`) té prioritat sobre
+el fitxer, i un argument explícit a l'script té prioritat sobre tot.
 
 ## Connector Python
 
@@ -127,7 +133,7 @@ Instal·lació i tests:
 
 ```bash
 pip install -e ".[test]"
-OKLLIGA_ADMIN_DSN="postgresql://postgres:pass@localhost/postgres" python -m pytest tests/ -v
+python -m pytest tests/ -v   # llegirà OKLLIGA_ADMIN_DSN del .env
 ```
 
 Els tests creen i destrueixen una base de dades temporal (`oklliga_connector_test`)

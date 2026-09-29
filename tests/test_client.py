@@ -8,17 +8,18 @@ Si no hi ha DSN, es crea una base de dades de test temporal.
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 import psycopg
 import pytest
 
 from oklliga import OkLligaDB
+from oklliga.config import load_env
 
 SCHEMA = Path(__file__).resolve().parent.parent / "sql" / "01_schema.sql"
 
-ADMIN_DSN = os.environ.get(
+_env = load_env()
+ADMIN_DSN = os.environ.get("OKLLIGA_ADMIN_DSN") or _env.get(
     "OKLLIGA_ADMIN_DSN", "postgresql://postgres:test@localhost/postgres"
 )
 TEST_DB = "oklliga_connector_test"

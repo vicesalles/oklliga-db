@@ -7,7 +7,10 @@ per al Liceo (1r, fase regular); la resta es completarà amb l'scraping
 de la classificació completa.
 
 Idempotent: es pot reexecutar sense duplicats.
-Ús:
+Ús (llegint OKLLIGA_DSN del fitxer .env de l'arrel):
+    python scripts/seed_2025_26.py
+
+O amb DSN explícit (override):
     python scripts/seed_2025_26.py postgresql://user:pass@localhost/oklliga
 """
 
@@ -16,6 +19,7 @@ import sys
 sys.path.insert(0, ".")
 
 from oklliga import OkLligaDB
+from oklliga.config import get_dsn
 
 SOURCE_NAME = "RFEP - hockeypatines.fep.es"
 SOURCE_URL = "https://www.hockeypatines.fep.es/league/2477"
@@ -133,6 +137,5 @@ def main(dsn: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("Ús: python scripts/seed_2025_26.py <DSN postgresql://...>")
-    main(sys.argv[1])
+    dsn = sys.argv[1] if len(sys.argv) > 1 else get_dsn()
+    main(dsn)
