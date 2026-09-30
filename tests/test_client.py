@@ -2,61 +2,14 @@
 
 Requereix: psycopg >= 3.1
 Ús:
-    OKLLIGA_TEST_DSN="postgresql://..." python -m pytest tests/ -v
+    OKLLIGA_ADMIN_DSN="postgresql://..." python -m pytest tests/ -v
 
-Si no hi ha DSN, es crea una base de dades de test temporal.
+Fixtures (dsn, _swap_db) definides a conftest.py.
 """
 
-import os
-from pathlib import Path
-
-import psycopg
 import pytest
 
 from oklliga import OkLligaDB
-from oklliga.config import load_env
-
-SCHEMA = Path(__file__).resolve().parent.parent / "sql" / "01_schema.sql"
-
-_env = load_env()
-ADMIN_DSN = os.environ.get("OKLLIGA_ADMIN_DSN") or _env.get(
-    "OKLLIGA_ADMIN_DSN", "postgresql://postgres:test@localhost/postgres"
-)
-TEST_DB = "oklliga_connector_test"
-
-
-def _swap_db(conninfo: str, dbname: str) -> str:
-    """Substitueix el nom de la base de dades d'un DSN, mantenint host/usuari."""
-    from psycopg.conninfo import make_conninfo
-
-    params = psycopg.conninfo.conninfo_to_dict(conninfo)
-    params["dbname"] = dbname
-    return make_conninfo(**params)
-
-
-@pytest.fixture(scope="session")
-def dsn():
-    admin = psycopg.connect(ADMIN_DSN, autocommit=True)
-    try:
-        admin.execute(f"DROP DATABASE IF EXISTS {TEST_DB}")
-        admin.execute(f"CREATE DATABASE {TEST_DB}")
-    finally:
-        admin.close()
-
-    test_conn = psycopg.connect(_swap_db(ADMIN_DSN, TEST_DB), autocommit=True)
-    try:
-        test_conn.execute(SCHEMA.read_text(encoding="utf-8"))
-    finally:
-        test_conn.close()
-
-    yield _swap_db(ADMIN_DSN, TEST_DB)
-
-    admin = psycopg.connect(ADMIN_DSN, autocommit=True)
-    try:
-        admin.execute(f"DROP DATABASE IF EXISTS {TEST_DB}")
-    finally:
-        admin.close()
-
 
 def test_upsert_club_idempotent(dsn):
     with OkLligaDB(dsn) as db:
@@ -105,20 +58,22 @@ def test_match_upsert_and_events(dsn):
         season = db.upsert_season(2002)
         sc = db.season_competition_id(ok, season, "OK Lliga MatchTest")
 
+        t_igualada = db.upsert_team(igualada, "first")
+        t_reus = db.upsert_team(reus, "first")
         m1 = db.upsert_match(
-            sc, igualada, reus,
+            sc, t_igualada, t_reus,
             round=5, matchday_date="2002-11-09", status="played",
             home_goals=3, away_goals=1,
             home_goals_first_half=2, away_goals_first_half=0,
         )
         m2 = db.upsert_match(
-            sc, igualada, reus,
+            sc, t_igualada, t_reus,
             round=5, matchday_date="2002-11-09", status="played",
             home_goals=3, away_goals=1,
         )
         assert m1 == m2
 
-        ev = db.add_match_event(m1, igualada, "goal", minute=12, half=1)
+        ev = db.add_match_event(m1, t_igualada, "goal", minute=12, half=1)
         assert ev > 0
         db.add_match_event(m1, reus, "blue_card", minute=41, half=1, value_num=2)
 
