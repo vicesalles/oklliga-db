@@ -226,10 +226,14 @@ class SidgadIngest:
                 c.execute(
                     """
                     UPDATE participation
-                    SET final_position = %(pos)s, points = %(pts)s
+                    SET final_position = %(pos)s, points = %(pts)s,
+                        wins = %(w)s, draws = %(d)s, losses = %(l)s,
+                        goals_for = %(gf)s, goals_against = %(gc)s
                     WHERE season_competition_id = %(sc)s AND team_id = %(team)s
                     """,
                     {"pos": st.position, "pts": st.points,
+                     "w": st.wins, "d": st.draws, "l": st.losses,
+                     "gf": st.goals_for, "gc": st.goals_against,
                      "sc": season_competition_id, "team": team_id},
                 )
                 if c.rowcount == 0:
@@ -239,15 +243,23 @@ class SidgadIngest:
                         """
                         INSERT INTO participation
                             (season_competition_id, team_id, final_position, points,
-                             notes)
+                             wins, draws, losses, goals_for, goals_against, notes)
                         VALUES (%(sc)s, %(team)s, %(pos)s, %(pts)s,
+                                %(w)s, %(d)s, %(l)s, %(gf)s, %(gc)s,
                                 'Creada per la classificació')
                         ON CONFLICT (season_competition_id, team_id) DO UPDATE
                             SET final_position = EXCLUDED.final_position,
-                                points = EXCLUDED.points
+                                points = EXCLUDED.points,
+                                wins = EXCLUDED.wins,
+                                draws = EXCLUDED.draws,
+                                losses = EXCLUDED.losses,
+                                goals_for = EXCLUDED.goals_for,
+                                goals_against = EXCLUDED.goals_against
                         """,
                         {"sc": season_competition_id, "team": team_id,
-                         "pos": st.position, "pts": st.points},
+                         "pos": st.position, "pts": st.points,
+                         "w": st.wins, "d": st.draws, "l": st.losses,
+                         "gf": st.goals_for, "gc": st.goals_against},
                     )
             counts["resolved"] += 1
         self._enqueue_unresolved(queue)
