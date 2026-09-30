@@ -1,8 +1,18 @@
 # OK Lliga — Base de dades per a mineria de dades
 
 Model de dades PostgreSQL per emmagatzemar resultats i estadístiques de tots els
-partits de l'OK Lliga (històric complet, incloses les etapes anteriors amb altres
+partits de l'OK Lliga des de la temporada 2021/22 (vegeu «Abast» a continuació),
 noms de la competició), pensat per a futures operacions de mineria de dades.
+
+## Abast: amnèsia deliberada
+
+La temporada d'inici de la base de dades és la **2021/22**. No s'ingereix ni
+s'accepta cap dada anterior, per a cap competició. És una decisió editorial
+assumida i deliberada: s'aprèn la pèrdua d'històric a canvi de concentrar
+l'esforç en créixer endavant (temporades futures) i en amplada (més
+competicions, categories i dimensions de dada dins de l'abast). El límit és
+operatiu, no només documental: `ingest_season.py` defineix `MIN_SEASON = 2021`
+i rebutja amb error explícit qualsevol temporada anterior.
 
 ## Les tres dificultats i com les resol el model
 

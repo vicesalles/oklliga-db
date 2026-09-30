@@ -35,6 +35,10 @@ from oklliga.sidgad import (
     parse_teams_array,
 )
 
+# Límit editorial: la temporada d'inici és la 2021/22. No s'ingereix
+# res anterior per a cap competició (decisió documentada al README).
+MIN_SEASON = 2021
+
 # Edicions (idc) de la fase regular masculina, segons l'informe tècnic.
 # El catàleg les torna dinàmicament, però això serveix de mapa de control.
 KNOWN_EDITIONS = {
@@ -44,7 +48,6 @@ KNOWN_EDITIONS = {
     2023: 2477,
     2022: 2092,
     2021: 1751,
-    2020: 1474,
 }
 
 # rfep_season_id (opac, NO és l'any): segons el catàleg
@@ -55,7 +58,6 @@ KNOWN_RFEP_TEMP = {
     2023: 35,
     2022: 33,
     2021: 31,
-    2020: 29,
 }
 
 
@@ -125,10 +127,15 @@ def main() -> None:
                     help="només analitza i mostra, no escriu a la BD")
     args = ap.parse_args()
 
+    if args.season < MIN_SEASON:
+        raise SystemExit(
+            f"Temporada {args.season} anterior al l\u00edmit editorial ({MIN_SEASON}); "
+            "veure 'Abast' al README"
+        )
     if args.season not in KNOWN_RFEP_TEMP:
         raise SystemExit(
             f"Temporada {args.season} sense rfep_season_id conegut; "
-            "consulta el catàleg i amplia KNOWN_RFEP_TEMP"
+            "consulta el cat\u00e0leg i amplia KNOWN_RFEP_TEMP"
         )
     rfep_temp = KNOWN_RFEP_TEMP[args.season]
 
