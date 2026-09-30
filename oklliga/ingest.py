@@ -152,8 +152,12 @@ class SidgadIngest:
         resolver_queue: list[tuple[str, dict]] = []
 
         for m in matches:
-            home_club = club_by_team_entry.get(self._team_key(teams, m.home_abbr, m.home_name))
-            away_club = club_by_team_entry.get(self._team_key(teams, m.away_abbr, m.away_name))
+            home_club = self._resolve_side(
+                m, m.home_team_id, m.home_name, club_by_team_entry, teams, "home"
+            )
+            away_club = self._resolve_side(
+                m, m.away_team_id, m.away_name, club_by_team_entry, teams, "away"
+            )
             if home_club is None:
                 resolver_queue.append((m.home_name, self._context(m, "home")))
                 counts["queued"] += 1
@@ -170,19 +174,33 @@ class SidgadIngest:
         self._enqueue_unresolved(resolver_queue)
         return counts
 
-    def _team_key(
-        self, teams: list[SidgadTeam], abbr: str, name: str
-    ) -> Optional[str]:
-        """Clau de team_entry: primer per nom exacte (únic), després per
-        sigles només si no hi ha ambigüitat (ex: CPV és ambigu entre
-        Voltregà/Vilafranca a la 2024/25)."""
+    def _resolve_side(
+        self,
+        m: SidgadMatch,
+        team_id: Optional[str],
+        name: str,
+        club_by_team_entry: dict[str, int],
+        teams: list[SidgadTeam],
+        side: str,
+    ) -> Optional[int]:
+        """Resol un costat de partit a club amb garanties:
+
+        1. team_entry_id (classe team_{id} del calendari o teams_array):
+           la clau estable, ÚNICA per edició. Les sigles no són clau.
+        2. Fallback per nom exacte dins de l'edició (equip d'aquest any).
+        3. Fallback per sigles NOMÉS si és no ambigu dins de l'edició.
+        4. Si no hi ha ID i els fallbacks fallen → None (va a la cua
+           d'humans; mai s'endevina).
+        """
+        if team_id:
+            return club_by_team_entry.get(team_id)
         uname = name.strip().upper()
         for team in teams:
             if team.name.strip().upper() == uname:
-                return team.team_entry_id
-        matches = [t for t in teams if t.abbr.strip() == abbr.strip()]
-        if len(matches) == 1:
-            return matches[0].team_entry_id
+                return club_by_team_entry.get(team.team_entry_id)
+        same_abbr = [t for t in teams if t.abbr.strip() == (m.home_abbr if side == "home" else m.away_abbr).strip()]
+        if len(same_abbr) == 1:
+            return club_by_team_entry.get(same_abbr[0].team_entry_id)
         return None
 
     def _context(self, m: SidgadMatch, side: str) -> dict:

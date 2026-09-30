@@ -60,7 +60,13 @@ class SidgadTeam:
 
 @dataclass
 class SidgadMatch:
-    """Un partit del calendari, parsejat del fragment HTML."""
+    """Un partit del calendari, parsejat del fragment HTML.
+
+    La identificació fiable dels equips és home_team_id/away_team_id,
+    extrets de les classes team_{id} del <tr> (ordre: local, visitant).
+    Les sigles i el nom visible són només informatius: NO són clau
+    (CPV pot ser Voltregà, Vilafranca, Vic, Vilanova... entre edicions).
+    """
 
     round: Optional[int]
     gamedate: str          # 'YYYYMMDD'
@@ -69,6 +75,8 @@ class SidgadMatch:
     away_name: str
     home_abbr: str
     away_abbr: str
+    home_team_id: Optional[str]   # team_entry_id de la classe team_{id}
+    away_team_id: Optional[str]
     home_goals: Optional[int]
     away_goals: Optional[int]
     idp: Optional[str]      # id de fitxa de partit
@@ -180,9 +188,19 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
     team_{id}). Retorna None si la fila no és un partit (capçaleres,
     files de resolució disciplinària sense enfrontament...).
     """
-    attrs = dict(re.findall(r'(\w+)="([^"]*)"', tr_html))
-    if "gamedate" not in attrs:
+    # Atributs NOMÉS de l'etiqueta d'obertura del <tr>: els <td> interns
+    # també tenen atributs (class="tabla_standard_less"...) que sobreescriurien
+    # el class del <tr> i ens farien perdre les classes team_{id}.
+    open_tag = re.search(r"<tr\b[^>]*>", tr_html, re.IGNORECASE)
+    if open_tag is None or "gamedate" not in open_tag.group(0):
         return None
+    attrs = dict(re.findall(r'(\w+)="([^"]*)"', open_tag.group(0)))
+
+    # IDs d'equip de les classes team_{id}: LA clau de resolució.
+    # Ordre al class: primer local, després visitant.
+    team_classes = re.findall(r"team_(\d+)", attrs.get("class", ""))
+    home_team_id = team_classes[0] if len(team_classes) >= 1 else None
+    away_team_id = team_classes[1] if len(team_classes) >= 2 else None
 
     def _int(v: Optional[str]) -> Optional[int]:
         if v is None:
@@ -241,6 +259,8 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
         away_name=away,
         home_abbr=attrs.get("abbr1", ""),
         away_abbr=attrs.get("abbr2", ""),
+        home_team_id=home_team_id,
+        away_team_id=away_team_id,
         home_goals=hm,
         away_goals=am,
         idp=attrs.get("idp") or None,
