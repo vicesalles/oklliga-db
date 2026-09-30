@@ -104,6 +104,22 @@ partit amb:
 Idempotència: l'índex únic `uq_match_event_natural` (migració 0009)
 impedeix duplicar events en reexecutar.
 
+**Fitxes no publicades (404).** El SIDGAD pot respondre 404 per fitxes
+d'edicions recents (p. ex. els play-offs 2025/26): l'acta encara no és
+ pública al servidor. La ingesta ho distingeix de "sense dades" i
+enregistra cada intent a `sheet_fetch_attempt` (migració 0010) amb
+estat `ok` / `not_published_404` / `no_data`, data i codi HTTP. Per
+reintentar les pendents n'hi ha prou amb reexecutar l'script: la ingesta
+és idempotent i només fa falta una passada periòdica fins que el SIDGAD
+les pengi. Consulta ràpida de pendents:
+
+```sql
+SELECT status, count(*) FROM sheet_fetch_attempt
+WHERE attempted_at = (SELECT max(attempted_at) FROM sheet_fetch_attempt s2
+                      WHERE s2.match_id = sheet_fetch_attempt.match_id)
+GROUP BY status;
+```
+
 ## Estadístiques extensibles
 
 Les mètriques es guarden com a parelles `stat_key` + `value_num/value_text/value_json`

@@ -161,22 +161,30 @@ def main() -> None:
                 (sc_id,),
             )
             matches = c.fetchall()
-            done = 0
+            done = n404 = nnodata = 0
             for mr in matches:
                 if args.limit and ingested >= args.limit:
                     print(f"  Límit de {args.limit} fitxes assolit")
                     return
-                ok = ing.ingest_match_sheet(
+                status = ing.ingest_match_sheet(
                     mr["match_id"], mr["source_ref"],
                     team_by_entry, entry_by_name,
                 )
-                if ok:
+                if status == "ok":
                     done += 1
                     ingested += 1
                     print(f"  Fitxa {mr['source_ref']}: OK")
+                elif status == "not_published_404":
+                    n404 += 1
+                    print(f"  Fitxa {mr['source_ref']}: 404 — encara no publicada al SIDGAD (pendent reintent)")
                 else:
+                    nnodata += 1
                     print(f"  Fitxa {mr['source_ref']}: sense dades")
-            print(f"  Fitxes: {done}/{len(matches)}")
+            print(f"  Fitxes: {done} OK, {n404} no publicades (404), "
+                  f"{nnodata} sense dades — total {len(matches)}")
+            if n404:
+                print("  Nota: les fitxes 404 queden enregistrades a "
+                      "sheet_fetch_attempt; reexecutar per reintentar-les.")
 
         print(f"\nTotal: {ingested} fitxes ingestades")
 

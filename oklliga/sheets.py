@@ -237,8 +237,13 @@ class SheetIngest:
         idp: str,
         team_by_entry: dict[str, int],
         entry_by_edition_name: dict[str, str],
-    ) -> bool:
-        """Ingereix la fitxa d'un partit. Retorna False si no hi ha fitxa.
+    ) -> str:
+        """Ingereix la fitxa d'un partit.
+
+        Retorna 'ok', 'not_published_404' (el SIDGAD encara no ha
+        publicat l'acta; reintentable) o 'no_data' (resposta no
+        parsejable). Cada intent queda enregistrat a
+        sheet_fetch_attempt.
 
         team_by_entry: team_entry_id -> team_id intern.
         entry_by_edition_name: nom visible de l'edició (teams_array) ->
@@ -249,11 +254,13 @@ class SheetIngest:
             html = self.client.fetch_match_sheet(int(idp))
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                return False
+                self._record_attempt(match_id, idp, "not_published_404", 404)
+                return "not_published_404"
             raise
         sheet = parse_match_sheet(html)
         if sheet is None:
-            return False
+            self._record_attempt(match_id, idp, "no_data")
+            return "no_data"
         c = self.db.conn.cursor()
 
         c.execute(
@@ -302,7 +309,38 @@ class SheetIngest:
                         "g": row.is_goalkeeper, "s": self.source_id,
                     },
                 )
-        return True
+        self._record_attempt(match_id, idp, "ok")
+        return "ok"
+
+    def _record_attempt(
+        self,
+        match_id: int,
+        idp: str,
+        status: str,
+        http_status: Optional[int] = None,
+    ) -> None:
+        """Enregistra un intent de descàrrega de fitxa (auditoria).
+
+        Distingeix 'not_published_404' (SIDGAD encara no ha publicat
+        l'acta; reintentar en futures passades) de 'no_data' (resposta
+        buida o no parsejable).
+        """
+        c = self.db.conn.cursor()
+        c.execute(
+            """
+            INSERT INTO sheet_fetch_attempt
+                (match_id, idp, endpoint, status, http_status, source_id)
+            VALUES (%(m)s, %(i)s, %(e)s, %(st)s, %(h)s, %(s)s)
+            """,
+            {
+                "m": match_id,
+                "i": idp,
+                "e": f"rfep/rfep_gr_{idp}_1.php",
+                "st": status,
+                "h": http_status,
+                "s": self.source_id,
+            },
+        )
 
     def _ingest_event(
         self,

@@ -322,6 +322,24 @@ CREATE TABLE match_referee (
     PRIMARY KEY (match_id, referee_id, role)
 );
 
+-- Auditoria d'intents de descàrrega de fitxes: distingeix 'no publicada
+-- encara al SIDGAD' (404 reintentable) de 'sense dades'.
+CREATE TABLE sheet_fetch_attempt (
+    attempt_id  serial PRIMARY KEY,
+    match_id    integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
+    idp         text NOT NULL,
+    endpoint    text NOT NULL,
+    status      text NOT NULL CHECK (status IN ('ok', 'not_published_404', 'no_data')),
+    http_status integer,
+    source_id   integer REFERENCES source(source_id),
+    attempted_at timestamp NOT NULL DEFAULT now(),
+    notes       text
+);
+CREATE INDEX idx_sheet_fetch_attempt_match
+    ON sheet_fetch_attempt (match_id, attempted_at);
+CREATE INDEX idx_sheet_fetch_attempt_status
+    ON sheet_fetch_attempt (status, attempted_at);
+
 -- ---------------------------------------------------------------------
 -- 8. JUGADORS: mateix patró que clubs (entitat persistent + historial
 --    de noms) i vincle temporal club-jugador (plantilles/fitxatges)
