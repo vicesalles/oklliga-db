@@ -166,8 +166,12 @@ class SidgadIngest:
                 resolver_queue.append((m.away_name, self._context(m, "away")))
                 counts["queued"] += 1
                 continue
+            # L'equip que competeix: 'first' del club resolt (les edicions
+            # actuals de l'OK Lliga no tenen filials; el model ja els suporta)
+            home_team = self.db.upsert_team(home_club, "first")
+            away_team = self.db.upsert_team(away_club, "first")
             self._upsert_match(
-                m, season_competition_id, home_club, away_club, season_start_year
+                m, season_competition_id, home_team, away_team, season_start_year
             )
             counts["matches"] += 1
 
@@ -239,8 +243,8 @@ class SidgadIngest:
         self,
         m: SidgadMatch,
         season_competition_id: int,
-        home_club: int,
-        away_club: int,
+        home_team: int,
+        away_team: int,
         season_start_year: int,
     ) -> None:
         played = m.home_goals is not None and m.away_goals is not None
@@ -253,7 +257,7 @@ class SidgadIngest:
             """
             INSERT INTO match (
                 season_competition_id, round, stage, matchday_date, status,
-                home_club_id, away_club_id, home_goals, away_goals,
+                home_team_id, away_team_id, home_goals, away_goals,
                 source_id, source_url, source_ref, confidence, result_type, notes
             ) VALUES (
                 %(sc)s, %(round)s, 'regular', %(md)s, %(st)s,
@@ -267,8 +271,8 @@ class SidgadIngest:
                 "round": m.round,
                 "md": matchday,
                 "st": "played" if played else "scheduled",
-                "h": home_club,
-                "a": away_club,
+                "h": home_team,
+                "a": away_team,
                 "hg": m.home_goals,
                 "ag": m.away_goals,
                 "src": self.source_id,

@@ -22,8 +22,11 @@ SUSPECT_QUERIES: dict[str, str] = {
         SELECT c.club_id, c.canonical_name
         FROM club c
         WHERE NOT EXISTS (
-            SELECT 1 FROM match m
-            WHERE m.home_club_id = c.club_id OR m.away_club_id = c.club_id
+            SELECT 1
+            FROM team t
+            JOIN match m
+              ON m.home_team_id = t.team_id OR m.away_team_id = t.team_id
+            WHERE t.club_id = c.club_id
         )
     """,
     "noms_gairebe_identics": """
@@ -112,46 +115,77 @@ class ClubAuditor:
                     f"Algun dels clubs no existeix: {merged_club_id}, {kept_club_id}"
                 )
 
-            # Reassignació de totes les FK que apunten al club erroni
+            # Reassignació de les FK directes del club (noms, fitxatges)
             for table, col in (
                 ("club_name", "club_id"),
-                ("participation", "club_id"),
                 ("squad_membership", "club_id"),
-                ("match_player", "club_id"),
-                ("match_event", "club_id"),
-                ("team_match_stat", "club_id"),
             ):
                 c.execute(
                     f"UPDATE {table} SET {col} = %s WHERE {col} = %s",
                     (kept_club_id, merged_club_id),
                 )
-            # Partits ENTRE els dos clubs fusionats: després de la fusió
-            # serien "club contra si mateix" i violen match_home_away_diff.
-            # Son simulacres erronis (els dos clubs son la mateixa identitat).
+            # Els equips del club erroni es mouen al correcte: per cada
+            # label, si el club correcte ja té un equip amb la mateixa
+            # label, les referències es reapunten a l'equip existent;
+            # si no, l'equip canvia de club.
             c.execute(
                 """
-                DELETE FROM match
-                WHERE (home_club_id = %s AND away_club_id = %s)
-                   OR (home_club_id = %s AND away_club_id = %s)
+                SELECT team_id, label FROM team WHERE club_id = %s
                 """,
-                (merged_club_id, kept_club_id,
-                 kept_club_id, merged_club_id),
+                (merged_club_id,),
             )
-            # Reassignacio atomica: un sol UPDATE per no passar mai per
-            # un estat intermig home=away (la constraint match_home_away_diff
-            # es validaria fila a fila en dos UPDATE separats).
-            c.execute(
-                """
-                UPDATE match SET
-                    home_club_id = CASE WHEN home_club_id = %s THEN %s
-                                        ELSE home_club_id END,
-                    away_club_id = CASE WHEN away_club_id = %s THEN %s
-                                        ELSE away_club_id END
-                WHERE %s IN (home_club_id, away_club_id)
-                """,
-                (merged_club_id, kept_club_id,
-                 merged_club_id, kept_club_id, merged_club_id),
-            )
+            merged_teams = list(c.fetchall())
+            for mt in merged_teams:
+                c.execute(
+                    "SELECT team_id FROM team WHERE club_id = %s AND label = %s",
+                    (kept_club_id, mt["label"]),
+                )
+                kept_team = c.fetchone()
+                target = kept_team["team_id"] if kept_team else None
+                if target is not None:
+                    # Partits ENTRE l'equip duplicat i l'equip del club bo:
+                    # després de la fusió serien "club contra si mateix"
+                    # (simulacres erronis: eren la mateixa identitat).
+                    c.execute(
+                        """
+                        DELETE FROM match
+                        WHERE (home_team_id = %s AND away_team_id = %s)
+                           OR (home_team_id = %s AND away_team_id = %s)
+                        """,
+                        (mt["team_id"], target, target, mt["team_id"]),
+                    )
+                    # Reassignacio atomica dels partits: un sol UPDATE per
+                    # no passar mai per un estat intermig home=away.
+                    c.execute(
+                        """
+                        UPDATE match SET
+                            home_team_id = CASE WHEN home_team_id = %s THEN %s
+                                                ELSE home_team_id END,
+                            away_team_id = CASE WHEN away_team_id = %s THEN %s
+                                                ELSE away_team_id END
+                        WHERE %s IN (home_team_id, away_team_id)
+                        """,
+                        (mt["team_id"], target,
+                         mt["team_id"], target, mt["team_id"]),
+                    )
+                    # Reapunta la resta de referències a l'equip del club bo
+                    for table, col in (
+                        ("participation", "team_id"),
+                        ("match_player", "team_id"),
+                        ("match_event", "team_id"),
+                        ("team_match_stat", "team_id"),
+                    ):
+                        c.execute(
+                            f"UPDATE {table} SET {col} = %s WHERE {col} = %s",
+                            (target, mt["team_id"]),
+                        )
+                    c.execute("DELETE FROM team WHERE team_id = %s", (mt["team_id"],))
+                else:
+                    c.execute(
+                        "UPDATE team SET club_id = %s WHERE team_id = %s",
+                        (kept_club_id, mt["team_id"]),
+                    )
+            
 
             # Noms que queden duplicats al club correcte després de la fusió
             c.execute(

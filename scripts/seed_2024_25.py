@@ -104,17 +104,17 @@ def main(dsn: str) -> None:
                     is_sponsor_name=True,
                 )
                 club_ids[canonic] = club_id
-
+                team_id = db.upsert_team(club_id, "first")
                 c = db.conn.cursor()
                 c.execute(
                     """
-                    INSERT INTO participation (season_competition_id, club_id, notes)
-                    VALUES (%(sc)s, %(club)s, %(notes)s)
-                    ON CONFLICT (season_competition_id, club_id) DO NOTHING
+                    INSERT INTO participation (season_competition_id, team_id, notes)
+                    VALUES (%(sc)s, %(team)s, %(notes)s)
+                    ON CONFLICT (season_competition_id, team_id) DO NOTHING
                     """,
                     {
                         "sc": sc,
-                        "club": club_id,
+                        "team": team_id,
                         "notes": "Càrrega inicial manual 2024/25",
                     },
                 )
@@ -126,9 +126,9 @@ def main(dsn: str) -> None:
                 UPDATE participation
                 SET final_position = 1,
                     notes = '1r de la fase regular (classificació RFEP 03/05/2025)'
-                WHERE season_competition_id = %s AND club_id = %s
+                WHERE season_competition_id = %s AND team_id = %s
                 """,
-                (sc, club_ids[LIDER_FASE_REGULAR]),
+                (sc, db.upsert_team(club_ids[LIDER_FASE_REGULAR], "first")),
             )
 
         # Resum

@@ -187,11 +187,88 @@ class TestIngest:
             c.execute(
                 """SELECT hc.canonical_name AS home, ac.canonical_name AS away
                    FROM match mt
-                   JOIN club hc ON hc.club_id = mt.home_club_id
-                   JOIN club ac ON ac.club_id = mt.away_club_id
+                   JOIN team ht ON ht.team_id = mt.home_team_id
+                   JOIN club hc ON hc.club_id = ht.club_id
+                   JOIN team at2 ON at2.team_id = mt.away_team_id
+                   JOIN club ac ON ac.club_id = at2.club_id
                    WHERE mt.matchday_date = '2024-11-09' AND mt.source_id = %s""",
                 (src,),
             )
             row = c.fetchone()
             assert row["home"] == "CP VOLTREGA"
             assert row["away"] == "CP VILAFRANCA"
+
+
+class TestFilials:
+    """Semàntica d'equips: el club és la identitat; l'equip competeix.
+
+    Un filial (label 'B') NO és un club nou: és un segon equip del mateix
+    club, amb classificació i partits propis, en una altra competició.
+    """
+
+    def test_filial_es_equip_del_club(self, dsn):
+        from oklliga import OkLligaDB
+
+        with OkLligaDB(dsn) as db:
+            club = db.upsert_club("CP VOLTREGA")
+            first = db.upsert_team(club, "first")
+            filial = db.upsert_team(club, "B")
+            assert first != filial
+            # idempotent
+            assert db.upsert_team(club, "first") == first
+            assert db.upsert_team(club, "B") == filial
+
+            # El filial competeix a la mateixa temporada en altra competició
+            ok = db.upsert_competition(1)
+            plata = db.upsert_competition(2)
+            season = db.upsert_season(2026)
+            sc_ok = db.season_competition_id(ok, season, "OK Lliga")
+            sc_plata = db.season_competition_id(plata, season, "OK Lliga Plata")
+
+            c = db.conn.cursor()
+            c.execute(
+                """INSERT INTO participation (season_competition_id, team_id)
+                   VALUES (%s, %s), (%s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (sc_ok, first, sc_plata, filial),
+            )
+            # El filial juga partits propis contra equips d'altres clubs
+            altre_club = db.upsert_club("CP MANLLEU")
+            altre_b = db.upsert_team(altre_club, "B")
+            m = db.upsert_match(
+                sc_plata, filial, altre_b,
+                round=1, matchday_date="2026-10-03", status="played",
+                home_goals=3, away_goals=2,
+            )
+            assert m > 0
+
+            # Mineria per club: el club té participacions via els dos equips
+            hist = db.club_history(club)
+            comps = {h["competition"] for h in hist}
+            assert "OK Lliga" in comps and "OK Lliga Plata" in comps
+
+            # La invariant d'identitat no es trenca: un sol club, dos equips
+            c.execute(
+                "SELECT count(DISTINCT club_id) AS n FROM team WHERE team_id IN (%s, %s)",
+                (first, filial),
+            )
+            assert c.fetchone()["n"] == 1
+
+    def test_label_filial_validacio(self, dsn):
+        from oklliga import OkLligaDB
+        import psycopg
+
+        with OkLligaDB(dsn) as db:
+            club = db.upsert_club("CP MANLLEU")
+            # Labels permesos: 'first' i lletres majúscules
+            db.upsert_team(club, "first")
+            db.upsert_team(club, "B")
+            db.upsert_team(club, "C")
+            c = db.conn.cursor()
+            with pytest.raises(psycopg.errors.CheckViolation):
+                c.execute(
+                    "INSERT INTO team (club_id, label) VALUES (%s, 'junior')",
+                    (club,),
+                )
+            # Idempotència: reinsertar 'B' no duplica ni falla
+            assert db.upsert_team(club, "B") > 0

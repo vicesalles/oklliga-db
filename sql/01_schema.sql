@@ -106,6 +106,21 @@ CREATE INDEX idx_club_name_name ON club_name (name);
 CREATE INDEX idx_club_name_norm ON club_name (name_normalized);
 CREATE INDEX idx_club_name_club ON club_name (club_id);
 
+-- ---------------------------------------------------------------------
+-- 2b. EQUIPS: l'entitat que competeix. Un club pot tenir diversos equips
+--     (primer equip, filials B, C...). La identitat i els noms són del
+--     CLUB; qui participa en competicions i juga partits és l'EQUIP.
+--     'first' = primer equip; 'B', 'C'... = filials.
+-- ---------------------------------------------------------------------
+CREATE TABLE team (
+    team_id     serial PRIMARY KEY,
+    club_id     integer NOT NULL REFERENCES club(club_id),
+    label       text NOT NULL DEFAULT 'first',
+    notes       text,
+    UNIQUE (club_id, label),
+    CONSTRAINT team_label_ck CHECK (label = 'first' OR label ~ '^[B-Z]$')
+);
+
 -- Cua de resolució de noms: cap insert de club des de scraping es fa a cegues.
 -- Els noms que el connector no sap resoldre van aquí i un humà els classifica.
 CREATE TABLE pending_name_resolution (
@@ -190,12 +205,12 @@ CREATE TABLE season_competition (
 CREATE TABLE participation (
     participation_id     serial PRIMARY KEY,
     season_competition_id integer NOT NULL REFERENCES season_competition(season_competition_id),
-    club_id              integer NOT NULL REFERENCES club(club_id),
+    team_id              integer NOT NULL REFERENCES team(team_id),
     club_name_used_id    integer REFERENCES club_name(club_name_id), -- nom que apareixia a la font
     final_position       smallint,
     points               smallint,
     notes                text,
-    UNIQUE (season_competition_id, club_id)
+    UNIQUE (season_competition_id, team_id)
 );
 
 -- ---------------------------------------------------------------------
@@ -209,8 +224,8 @@ CREATE TABLE match (
     stage                text,              -- 'regular', 'playoff QF', 'final', ...
     matchday_date        date,             -- pot ser NULL si és desconeguda (dades antigues)
     status               match_status NOT NULL DEFAULT 'scheduled',
-    home_club_id         integer NOT NULL REFERENCES club(club_id),
-    away_club_id         integer NOT NULL REFERENCES club(club_id),
+    home_team_id         integer NOT NULL REFERENCES team(team_id),
+    away_team_id         integer NOT NULL REFERENCES team(team_id),
     home_goals           smallint,
     away_goals           smallint,
     home_goals_first_half smallint,         -- 1r temps (escàs en dades antigues)
@@ -224,7 +239,7 @@ CREATE TABLE match (
     source_ref           text,              -- id a la font original
     confidence           confidence_level NOT NULL DEFAULT 'high',
     notes                text,
-    CONSTRAINT match_home_away_diff CHECK (home_club_id <> away_club_id),
+    CONSTRAINT match_home_away_diff CHECK (home_team_id <> away_team_id),
     CONSTRAINT match_score_status CHECK (
         (status = 'played' AND home_goals IS NOT NULL AND away_goals IS NOT NULL)
         OR (status <> 'played')
@@ -233,14 +248,14 @@ CREATE TABLE match (
 
 -- Unicitat natural d'un partit dins d'una temporada de competició:
 -- mateixa jornada (si coneguda) o, si no, mateixa data i enfrontament.
-CREATE UNIQUE INDEX uq_match_sc_round ON match (season_competition_id, home_club_id, away_club_id, round)
+CREATE UNIQUE INDEX uq_match_sc_round ON match (season_competition_id, home_team_id, away_team_id, round)
     WHERE round IS NOT NULL;
-CREATE UNIQUE INDEX uq_match_sc_date ON match (season_competition_id, home_club_id, away_club_id, matchday_date)
+CREATE UNIQUE INDEX uq_match_sc_date ON match (season_competition_id, home_team_id, away_team_id, matchday_date)
     WHERE round IS NULL AND matchday_date IS NOT NULL;
 
 CREATE INDEX idx_match_sc_date ON match (season_competition_id, matchday_date);
-CREATE INDEX idx_match_home ON match (home_club_id);
-CREATE INDEX idx_match_away ON match (away_club_id);
+CREATE INDEX idx_match_home ON match (home_team_id);
+CREATE INDEX idx_match_away ON match (away_team_id);
 
 -- ---------------------------------------------------------------------
 -- 7. ESTADÍSTIQUES EXTENSIBLES (JSONB)
@@ -266,7 +281,7 @@ CREATE TABLE match_stat (
 CREATE TABLE team_match_stat (
     team_match_stat_id serial PRIMARY KEY,
     match_id           integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
-    club_id            integer NOT NULL REFERENCES club(club_id),
+    team_id            integer NOT NULL REFERENCES team(team_id),
     is_home            boolean NOT NULL,
     stat_key           text NOT NULL,      -- 'shots', 'penalties', 'free_kicks', ...
     value_num          numeric,
@@ -274,7 +289,7 @@ CREATE TABLE team_match_stat (
     value_json         jsonb,
     source_id          integer REFERENCES source(source_id),
     confidence         confidence_level NOT NULL DEFAULT 'high',
-    UNIQUE (match_id, club_id, stat_key)
+    UNIQUE (match_id, team_id, stat_key)
 );
 
 -- ---------------------------------------------------------------------
@@ -327,7 +342,7 @@ CREATE INDEX idx_squad_membership_club ON squad_membership (club_id);
 CREATE TABLE match_player (
     match_player_id serial PRIMARY KEY,
     match_id        integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
-    club_id         integer NOT NULL REFERENCES club(club_id),
+    team_id         integer NOT NULL REFERENCES team(team_id),
     player_id       integer NOT NULL REFERENCES player(player_id),
     is_starter      boolean,
     minutes_played  smallint,
@@ -375,8 +390,10 @@ SELECT
     m.stage,
     m.matchday_date,
     m.status,
+    ht.label AS home_team_label,
     hc.canonical_name AS home_club,
     COALESCE(hn.name, hc.canonical_name) AS home_name_used,
+    at.label AS away_team_label,
     ac.canonical_name AS away_club,
     COALESCE(an.name, ac.canonical_name) AS away_name_used,
     m.home_goals,
@@ -390,12 +407,14 @@ SELECT
 FROM match m
 JOIN season_competition sc ON sc.season_competition_id = m.season_competition_id
 JOIN season s ON s.season_id = sc.season_id
-JOIN club hc ON hc.club_id = m.home_club_id
-JOIN club ac ON ac.club_id = m.away_club_id
-LEFT JOIN club_name hn ON hn.club_id = m.home_club_id
+JOIN team ht ON ht.team_id = m.home_team_id
+JOIN club hc ON hc.club_id = ht.club_id
+JOIN team at ON at.team_id = m.away_team_id
+JOIN club ac ON ac.club_id = at.club_id
+LEFT JOIN club_name hn ON hn.club_id = hc.club_id
      AND (hn.valid_from IS NULL OR hn.valid_from <= m.matchday_date)
      AND (hn.valid_until IS NULL OR hn.valid_until >= m.matchday_date)
-LEFT JOIN club_name an ON an.club_id = m.away_club_id
+LEFT JOIN club_name an ON an.club_id = ac.club_id
      AND (an.valid_from IS NULL OR an.valid_from <= m.matchday_date)
      AND (an.valid_until IS NULL OR an.valid_until >= m.matchday_date);
 

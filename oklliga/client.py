@@ -185,6 +185,43 @@ class OkLligaDB:
         )
         return list(c.fetchall())
 
+    # ------------------------------------------------------------- equips
+    def upsert_team(
+        self,
+        club_id: int,
+        label: str = "first",
+        cur: Optional[psycopg.Cursor] = None,
+    ) -> int:
+        """Equip competidor d'un club ('first', 'B', 'C'...). Idempotent."""
+        c = cur or self.conn.cursor()
+        c.execute(
+            """
+            INSERT INTO team (club_id, label)
+            VALUES (%s, %s)
+            ON CONFLICT (club_id, label) DO NOTHING
+            RETURNING team_id
+            """,
+            (club_id, label),
+        )
+        row = c.fetchone()
+        if row is None:
+            c.execute(
+                "SELECT team_id FROM team WHERE club_id = %s AND label = %s",
+                (club_id, label),
+            )
+            row = c.fetchone()
+        return row["team_id"]
+
+    def team_id_for_club(self, club_id: int, label: str = "first") -> Optional[int]:
+        """Consulta l'equip d'un club; None si no existeix."""
+        c = self.conn.cursor()
+        c.execute(
+            "SELECT team_id FROM team WHERE club_id = %s AND label = %s",
+            (club_id, label),
+        )
+        row = c.fetchone()
+        return row["team_id"] if row else None
+
     # ------------------------------------------------- competicions i temporades
 
     def upsert_competition(self, tier: int, notes: Optional[str] = None) -> int:
@@ -282,12 +319,12 @@ class OkLligaDB:
     def upsert_match(
         self,
         season_competition_id: int,
-        home_club_id: int,
-        away_club_id: int,
+        home_team_id: int,
+        away_team_id: int,
         **fields: Any,
     ) -> int:
         """Inserta o actualitza un partit pel criteri d'unicitat natural
-        (competició+temporada, clubs, i jornada o data).
+        (competició+temporada, equips, i jornada o data).
 
         Camps opcionals admesos: round, stage, matchday_date, status,
         home_goals, away_goals, home_goals_first_half, away_goals_first_half,
@@ -304,13 +341,13 @@ class OkLligaDB:
         extra = {k: v for k, v in fields.items() if k in allowed}
         c = self.conn.cursor()
         with self.conn.transaction():
-            return self._upsert_match_stmt(c, season_competition_id, home_club_id, away_club_id, extra)
+            return self._upsert_match_stmt(c, season_competition_id, home_team_id, away_team_id, extra)
 
-    def _upsert_match_stmt(self, c, season_competition_id, home_club_id, away_club_id, extra):
+    def _upsert_match_stmt(self, c, season_competition_id, home_team_id, away_team_id, extra):
         c.execute(
             """
             INSERT INTO match (
-                season_competition_id, home_club_id, away_club_id,
+                season_competition_id, home_team_id, away_team_id,
                 round, stage, matchday_date, status, home_goals, away_goals,
                 home_goals_first_half, away_goals_first_half,
                 home_goals_second_half, away_goals_second_half,
@@ -331,8 +368,8 @@ class OkLligaDB:
             """,
             {
                 "sc": season_competition_id,
-                "home": home_club_id,
-                "away": away_club_id,
+                "home": home_team_id,
+                "away": away_team_id,
                 **{k: extra.get(k) for k in (
                     "round", "stage", "matchday_date", "home_goals", "away_goals",
                     "home_goals_first_half", "away_goals_first_half",
@@ -353,22 +390,22 @@ class OkLligaDB:
                 """
                 SELECT match_id FROM match
                 WHERE season_competition_id = %(sc)s
-                  AND home_club_id = %(home)s AND away_club_id = %(away)s
+                  AND home_team_id = %(home)s AND away_team_id = %(away)s
                   AND round = %(round)s
                 """,
-                {"sc": season_competition_id, "home": home_club_id,
-                 "away": away_club_id, "round": extra.get("round")},
+                {"sc": season_competition_id, "home": home_team_id,
+                 "away": away_team_id, "round": extra.get("round")},
             )
         elif extra.get("matchday_date") is not None:
             c.execute(
                 """
                 SELECT match_id FROM match
                 WHERE season_competition_id = %(sc)s
-                  AND home_club_id = %(home)s AND away_club_id = %(away)s
+                  AND home_team_id = %(home)s AND away_team_id = %(away)s
                   AND matchday_date = %(matchday_date)s
                 """,
-                {"sc": season_competition_id, "home": home_club_id,
-                 "away": away_club_id, "matchday_date": extra.get("matchday_date")},
+                {"sc": season_competition_id, "home": home_team_id,
+                 "away": away_team_id, "matchday_date": extra.get("matchday_date")},
             )
         else:
             raise RuntimeError(
@@ -379,7 +416,7 @@ class OkLligaDB:
         if existing is None:
             raise RuntimeError(
                 "Conflicte d'upsert de partit sense criteri de resolució: "
-                f"sc={season_competition_id} home={home_club_id} away={away_club_id}"
+                f"sc={season_competition_id} home={home_team_id} away={away_team_id}"
             )
         if extra:
             cols = ", ".join(f"{k} = %({k})s" for k in extra)
@@ -394,7 +431,7 @@ class OkLligaDB:
     def add_match_event(
         self,
         match_id: int,
-        club_id: int,
+        team_id: int,
         event_type: str,
         **fields: Any,
     ) -> int:
@@ -403,11 +440,11 @@ class OkLligaDB:
         c.execute(
             """
             INSERT INTO match_event (
-                match_id, club_id, player_id, event_type, minute, half,
+                match_id, team_id, player_id, event_type, minute, half,
                 value_num, value_json, source_id, source_url, confidence, notes
             )
             VALUES (
-                %(match_id)s, %(club_id)s, %(player_id)s, %(event_type)s,
+                %(match_id)s, %(team_id)s, %(player_id)s, %(event_type)s,
                 %(minute)s, %(half)s,
                 %(value_num)s, %(value_json)s, %(source_id)s, %(source_url)s,
                 %(confidence)s, %(notes)s
@@ -416,7 +453,7 @@ class OkLligaDB:
             """,
             {
                 "match_id": match_id,
-                "club_id": club_id,
+                "team_id": team_id,
                 "player_id": fields.get("player_id"),
                 "event_type": event_type,
                 "minute": fields.get("minute"),
@@ -452,7 +489,8 @@ class OkLligaDB:
             FROM participation p
             JOIN season_competition sc ON sc.season_competition_id = p.season_competition_id
             JOIN season s ON s.season_id = sc.season_id
-            WHERE p.club_id = %s
+            JOIN team t ON t.team_id = p.team_id
+            WHERE t.club_id = %s
             ORDER BY s.start_year, sc.name_used
             """,
             (club_id,),

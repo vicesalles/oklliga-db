@@ -102,9 +102,12 @@ def test_merge_clubs_audia_i_corrigeix(dsn):
         comp = db.upsert_competition(1)
         season = db.upsert_season(2025)
         sc = db.season_competition_id(comp, season, "OK Lliga")
-        m_legitim = db.upsert_match(sc, dup, tercer, round=1,
+        t_dup = db.upsert_team(dup, "first")
+        t_tercer = db.upsert_team(tercer, "first")
+        t_bo = db.upsert_team(bo, "first")
+        m_legitim = db.upsert_match(sc, t_dup, t_tercer, round=1,
                                     home_goals=2, away_goals=2)
-        m_simulacre = db.upsert_match(sc, dup, bo, round=2,
+        m_simulacre = db.upsert_match(sc, t_dup, t_bo, round=2,
                                       home_goals=1, away_goals=1)
 
     with ClubAuditor(dsn) as auditor:
@@ -113,7 +116,15 @@ def test_merge_clubs_audia_i_corrigeix(dsn):
         row = auditor.conn.cursor()
         # El partit legítim queda reassignat al club correcte
         row.execute(
-            "SELECT home_club_id, away_club_id FROM match WHERE match_id = %s",
+            """
+            SELECT hc.club_id AS home_club_id, ac.club_id AS away_club_id
+            FROM match m
+            JOIN team ht ON ht.team_id = m.home_team_id
+            JOIN club hc ON hc.club_id = ht.club_id
+            JOIN team at ON at.team_id = m.away_team_id
+            JOIN club ac ON ac.club_id = at.club_id
+            WHERE m.match_id = %s
+            """,
             (m_legitim,),
         )
         match_row = row.fetchone()
