@@ -210,11 +210,6 @@ def main() -> None:
             else:
                 print(f"  {t.team_entry_id:6s} {t.abbr:5s} {t.name:42s} -> ??? {tag}")
 
-        if not accepted:
-            print("\nRes a escriure.")
-            return
-
-        print(f"\nEscrivint {len(accepted)} enllaços...")
         vf, vu = season_range(args.season)
         with db.transaction():
             for entry_id, club_id in accepted:
@@ -228,7 +223,48 @@ def main() -> None:
                 except Exception:
                     # Ja registrat pel seed amb altra grafia/vigència: no crític
                     pass
-        print("Fet. Ara ingest_season.py resoldrà tots els equips per ID.")
+            # Tanca els pendents de la cua que aquesta edició resol:
+            # el nom cru que la ingesta va enfilar coincideix amb el nom
+            # visible d'un equip de l'edició enllaçat (nou o ja existent).
+            c2 = db.conn.cursor()
+            c2.execute(
+                """
+                SELECT external_id, internal_id FROM external_id
+                WHERE source_id = %(s)s AND entity_type = 'club'
+                  AND external_id = ANY(%(entries)s)
+                """,
+                {"s": src, "entries": [t.team_entry_id for t in teams]},
+            )
+            club_by_entry = {r["external_id"]: r["internal_id"]
+                             for r in c2.fetchall()}
+            norm_by_entry = {t.team_entry_id: normalize(t.name)
+                             for t in teams
+                             if t.team_entry_id in club_by_entry}
+            c = db.conn.cursor()
+            c.execute(
+                "SELECT pending_id, raw_name FROM pending_name_resolution "
+                "WHERE status = 'pending'"
+            )
+            closed = 0
+            for row in c.fetchall():
+                entry = next((e for e, n in norm_by_entry.items()
+                              if n == normalize(row["raw_name"])), None)
+                if entry is None:
+                    continue
+                c.execute(
+                    """
+                    UPDATE pending_name_resolution
+                    SET status = 'resolved',
+                        resolved_club_id = %(club)s,
+                        resolved_by = 'link_rfep_ids (external_id)',
+                        resolved_at = now()
+                    WHERE pending_id = %(pid)s
+                    """,
+                    {"club": club_by_entry[entry], "pid": row["pending_id"]},
+                )
+                closed += c.rowcount
+        print(f"Fet. {len(accepted)} enllaços escrits; {closed} pendents tancats.")
+        print("Ara ingest_season.py resoldrà tots els equips per ID.")
 
 
 if __name__ == "__main__":

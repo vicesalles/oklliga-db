@@ -127,6 +127,7 @@ CREATE TABLE pending_name_resolution (
     pending_id    serial PRIMARY KEY,
     raw_name      text NOT NULL,
     context       jsonb,          -- temporada, competició, enfrontaments...
+    created_at    timestamp NOT NULL DEFAULT now(),
     status        text NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'resolved', 'rejected')),
     proposed_club_id integer REFERENCES club(club_id),
