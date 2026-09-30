@@ -320,3 +320,154 @@ class TestClassification:
         assert caldes.penalty == -3
         assert sts[1].penalty == 0
         assert sts[1].diff == 79
+
+
+class TestParseMatchSheet:
+    """Parser de fitxes de partit (rfep_gr_{idp}_1.php)."""
+
+    SHEET = """
+<div id="partido_data_ppal">
+<table><tr><td>OK LIGA MASCULINA 2025/2026 - JORNADA 1<br>26/09/2025 - 21:00</td>
+<td width="40%" style="text-align: center; vertical-align: baseline;">COMPLEJO DEPORTIVO LES COMES - IGUALADA<br></td></tr></table>
+<table><tr>
+<td><div class="nombre1">IGUALADA RIGAT HC</div></td>
+<td><div class="report_faltas">9</div></td>
+<td><div id="game_score"><span id="home_score">1</span>-<span id="away_score">4</span></div></td>
+<td><div class="report_faltas">6</div></td>
+<td><div class="nombre2">BARÇA</div></td>
+</tr></table>
+<table><tr><td>
+<span style="font-style: italic;"><span class='lang_label lang_es'>ARBITRAJE</span>
+<span class="lang_ca lang_label">ARBITRATGE</span></span><br>
+RIBO NAVARRO, JOSEP ANTONI<br>
+CALONGE BARRIO, DAVID
+</td></tr></table>
+</div>
+<div id="game_report_inicidencias">
+<table><tbody>
+<tr>
+<td><div class="game_view_indcidencias_period">P2</div>
+<div class="game_view_incidencias_time">03:56</div></td>
+<td class="stats_table"><div class="texto_gris_11">BAR</div></td>
+<td><img src="https://www.sidgad.com/shared/portales_files/images/icon_gol.png" width="20"></td>
+<td><div class="game_view_incidencias_result">1-4</div></td>
+<td><div class="game_view_incidencias_dorsal">55</div></td>
+<td><div class="evento_destacado"><span class='lang_label lang_es'>GOL</span></div>
+<a href="#" id_player="3956" class="nombre_ficha_jugador_plus" temp_name="2025/2026" team_id="3358">
+ARAGONES FERRERES <span class='texto_gris_11'>SERGI</span></a></td>
+</tr>
+<tr>
+<td><div class="game_view_indcidencias_period">P1</div>
+<div class="game_view_incidencias_time">02:01</div></td>
+<td class="stats_table"><div class="texto_gris_11">IHC</div></td>
+<td></td>
+<td></td>
+<td><div class="game_view_incidencias_dorsal">22</div></td>
+<td><div class="evento_negativo"><span class='lang_label lang_es'>TARJETA AMARILLA</span></div>
+<a href="#" id_player="7886" class="nombre_ficha_jugador_plus" team_id="3408">
+BARS CATALÀ <span class='texto_gris_11'>ROGER</span></a></td>
+</tr>
+<tr>
+<td><div class="game_view_indcidencias_period">P2</div>
+<div class="game_view_incidencias_time">09:46</div></td>
+<td class="stats_table"><div class="texto_gris_11">RIV</div></td>
+<td><img src="https://www.sidgad.com/shared/portales_files/images/icon_gol.png" width="20"></td>
+<td><div class="game_view_incidencias_result">4-2</div></td>
+<td><div class="game_view_incidencias_dorsal">77</div></td>
+<td><div class="evento_destacado"><span class='lang_label lang_es'>GOL</span>
+<span class='lang_label lang_en'>GOAL</span> - FALTA DIRECTA</div>
+<a href="#" id_player="0" class="nombre_ficha_jugador_plus" team_id="3300">
+<span class='texto_gris_11'></span></a></td>
+</tr>
+</tbody></table>
+</div>
+<div id="div_acta">
+<table class="tabla_acta_print"><tr>
+<td><span class='lang_label lang_es'>Local</span><span class='lang_label lang_ca'>Local</span></td>
+<td width="50%" style="font-weight: bold;">IGUALADA RIGAT HC (1)</td>
+</tr></table>
+<table class="tabla_acta_print"><tr>
+<td align="center">1</td><td align="center">5</td><td align="center">P</td><td align="center"></td>
+<td>OKM - MARTINEZ BORRAS,ARNAU</td><td></td>
+</tr><tr>
+<td align="center">4</td><td align="center">5</td><td align="center"></td><td align="center">C</td>
+<td>OKM - PASCUAL,MATÍAS JOSÉ</td><td></td>
+</tr></table>
+<table class="tabla_acta_print"><tr>
+<td><span class='lang_label lang_es'>Visitante</span><span class='lang_label lang_ca'>Visitant</span></td>
+<td width="50%" style="font-weight: bold;">BARÇA (4)</td>
+</tr></table>
+<table class="tabla_acta_print"><tr>
+<td align="center">3</td><td align="center">5</td><td align="center"></td><td align="center"></td>
+<td>OKM - ALABART GONZALEZ,IGNACIO</td><td></td>
+</tr></table>
+</div>
+"""
+
+    def test_parse_sheet_header(self):
+        from oklliga.sidgad import parse_match_sheet
+        s = parse_match_sheet(self.SHEET)
+        assert s is not None
+        assert s.venue == "COMPLEJO DEPORTIVO LES COMES - IGUALADA"
+        assert s.home_name == "IGUALADA RIGAT HC"
+        assert s.away_name == "BARÇA"
+        assert (s.home_score, s.away_score) == (1, 4)
+        assert s.date_str == "26/09/2025" and s.time_str == "21:00"
+        assert ("RIBO NAVARRO, JOSEP ANTONI", "main") in s.referees
+        assert ("CALONGE BARRIO, DAVID", "main") in s.referees
+
+    def test_parse_sheet_events(self):
+        from oklliga.sidgad import parse_match_sheet
+        s = parse_match_sheet(self.SHEET)
+        assert len(s.events) == 3
+        gol = s.events[0]
+        assert gol.event_type == "goal"
+        assert gol.id_player == "3956"
+        assert gol.team_entry_id == "3358"
+        assert gol.surname == "ARAGONES FERRERES"
+        assert gol.given_name == "SERGI"
+        assert gol.score_after == "1-4"
+        assert gol.dorsal == "55"
+        tgroc = s.events[1]
+        assert tgroc.event_type == "yellow_card"
+        assert tgroc.id_player == "7886"
+        # gol de falta directa amb id_player=0: player NULL, detall preservat
+        gol_fd = s.events[2]
+        assert gol_fd.event_type == "goal"
+        assert gol_fd.detail == "falta directa"
+        assert gol_fd.id_player is None
+
+    def test_parse_sheet_lineups(self):
+        from oklliga.sidgad import parse_match_sheet
+        s = parse_match_sheet(self.SHEET)
+        assert len(s.home_lineup) == 2
+        assert len(s.away_lineup) == 1
+        por = s.home_lineup[0]
+        assert por.dorsal == "1"
+        assert por.license_code == "OKM"
+        assert por.name == "MARTINEZ BORRAS,ARNAU"
+        assert por.is_goalkeeper is True
+        cap = s.home_lineup[1]
+        assert cap.is_captain is True
+        assert cap.is_goalkeeper is False
+        assert s.away_lineup[0].name == "ALABART GONZALEZ,IGNACIO"
+
+    def test_parse_squads(self):
+        from oklliga.sidgad import parse_squads
+        html = """
+<a href="#" id_player="4885" class="nombre_ficha_jugador_plus" player_name = "ALABART GONZALEZ, IGNACIO" temp_name = "" team_id="3358">
+<a href="#" id_player="27432" class="nombre_ficha_jugador_plus" player_name = "ÁLVAREZ	BASSET, ADRIÀ" team_id="3358">
+<a href="#" id_player="4885" class="nombre_ficha_jugador_plus" player_name = "ALABART GONZALEZ, IGNACIO" team_id="3358">
+"""
+        sq = parse_squads(html)
+        # deduplicació per (id_player, team)
+        assert len(sq) == 2
+        assert sq[0].id_player == "4885"
+        assert sq[0].surname == "ALABART GONZALEZ"
+        assert sq[0].given_name == "IGNACIO"
+        # tabulador dins el nom es neteja
+        assert sq[1].surname == "ÁLVAREZ BASSET"
+
+    def test_parse_sheet_not_a_sheet(self):
+        from oklliga.sidgad import parse_match_sheet
+        assert parse_match_sheet("<html><body>res</body></html>") is None

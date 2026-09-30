@@ -77,6 +77,33 @@ La invariant "una identitat, noms variables" es defensa en quatre capes:
   extensibles `value_num`/`value_json` per detalls futurs (minuts de sanció,
   assistències...). `player_id` pot ser `NULL` quan la font antiga no el identifica.
 
+## Fitxes de partit (jugadors, àrbitres i esdeveniments)
+
+La ingesta de fitxes (`scripts/ingest_sheets.py --season 2025`) completa cada
+partit amb:
+
+- **Jugadors** (`player` + `player_name`): creats des de les plantilles de
+  l'edició (`stats_1_{idc}.php`, `tipo_stats=plantillas`), que són la font
+  autoritativa d'`id_player` de la RFEP. La pertinença a l'edició es registra
+  com a `external_id` amb `entity_type='squad_member'`.
+- **Alineacions** (`match_player`): les files de l'acta no porten id de
+  jugador; es resolen per nom normalitzat dins la plantilla del mateix
+  equip. Si un nom no coincideix, va a `pending_name_resolution`
+  (`kind='match_sheet_lineup'`) — mai es crea res a cegues.
+- **Esdeveniments** (`match_event`): gols (normals, de falta directa i de
+  penalti), targetes blaves, grogues i vermelles, amb període, minut del
+  període i detall JSON cru per auditoria. Els esdeveniments sense jugador
+  identificat queden amb `player_id` NULL (equipatius). Les faltes, els
+  temps morts i les faltres directes/penals no consumats no són esdeveniments
+  del model: queden al JSON cru.
+- **Àrbitres**: entitats (`referee`) amb designació per partit
+  (`match_referee`).
+- **Pavelló** (`match.venue`): camp de text simple amb el nom del recinte
+  tal com el publica la font.
+
+Idempotència: l'índex únic `uq_match_event_natural` (migració 0009)
+impedeix duplicar events en reexecutar.
+
 ## Estadístiques extensibles
 
 Les mètriques es guarden com a parelles `stat_key` + `value_num/value_text/value_json`

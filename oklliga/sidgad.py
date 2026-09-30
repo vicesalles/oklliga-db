@@ -204,6 +204,10 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
     if open_tag is None or "gamedate" not in open_tag.group(0):
         return None
     attrs = dict(re.findall(r'(\w+)="([^"]*)"', open_tag.group(0)))
+    # idp de la fitxa: viu a l'element fill <i class="game_report" idp="...">
+    # (no a l'etiqueta <tr>), i només existeix si el partit té fitxa.
+    idp_m = re.search(r'idp="(\d+)"', tr_html)
+    idp = idp_m.group(1) if idp_m else None
 
     # IDs d'equip de les classes team_{id}: LA clau de resolució.
     # Ordre al class: primer local, després visitant.
@@ -295,7 +299,7 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
         away_team_id=away_team_id,
         home_goals=hm,
         away_goals=am,
-        idp=attrs.get("idp") or None,
+        idp=idp or attrs.get("idp") or None,
         raw_attrs=attrs,
     )
 
@@ -387,3 +391,284 @@ def parse_catalog_teams(html: str, idc: int) -> list[SidgadTeam]:
 def body_hash(body: str) -> str:
     """sha256 del cos, per a raw_snapshot i evitar reingestes."""
     return hashlib.sha256(body.encode("utf-8", errors="replace")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Fitxa de partit (rfep_gr_{idp}_{idm}.php): incidències + acta
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SheetPlayerRef:
+    """Referència a jugador dins la fitxa (incidències o plantilla d'edició)."""
+    id_player: Optional[str]
+    team_entry_id: Optional[str]
+    surname: str           # 'ALABART GONZALEZ'
+    given_name: str        # 'IGNACIO'
+
+
+@dataclass
+class SheetEvent:
+    """Una incidència de joc de la fitxa."""
+    period: Optional[str]      # 'P1', 'P2', 'PR', ...
+    clock: Optional[str]       # '03:56' minut del període
+    team_entry_id: Optional[str]
+    event_type: str            # normalitzat: 'goal', 'blue_card', ...
+    detail: Optional[str]      # '- FALTA DIRECTA' en gols de falta
+    dorsal: Optional[str]
+    id_player: Optional[str]    # '0' o None si no identifica jugador
+    surname: str
+    given_name: str
+    score_after: Optional[str]  # '1-4' per gols
+    raw_text: str
+
+
+@dataclass
+class SheetLineupRow:
+    """Fila de l'alineació a l'acta (sense id_player: es resol per nom)."""
+    dorsal: Optional[str]
+    license_code: Optional[str]  # 'OKM', 'AUT', 'OKP'...
+    name: str                    # 'MARTINEZ BORRAS,ARNAU'
+    is_goalkeeper: bool          # columna 'P'
+    is_captain: bool             # columna 'C'
+
+
+@dataclass
+class SidgadMatchSheet:
+    """Fitxa de partit parsejada."""
+    venue: Optional[str]
+    locality: Optional[str]
+    date_str: Optional[str]      # '26/09/2025'
+    time_str: Optional[str]      # '21:00'
+    home_name: str
+    away_name: str
+    home_score: Optional[int]
+    away_score: Optional[int]
+    referees: list[tuple[str, str]]   # (nom complet, rol)
+    events: list[SheetEvent]
+    home_lineup: list[SheetLineupRow]
+    away_lineup: list[SheetLineupRow]
+
+
+def _norm_event(text: str) -> tuple[str, Optional[str]]:
+    """Classifica el text d'una incidència -> (tipus normalitzat, detall).
+
+    Tipus normalitzats (no coincideixen 1:1 amb l'enum match_event_type:
+    alguns es guarden només com a metadades o s'ignoren):
+      goal, blue_card, yellow_card, red_card, penalty_awarded,
+      free_direct_awarded, foul, timeout, no_goal, other
+    """
+    t = text.upper().strip()
+    if t.startswith("GOL"):
+        detail = None
+        if "FALTA DIRECTA" in t:
+            detail = "falta directa"
+        elif "PENAL" in t:
+            detail = "penalti"
+        return "goal", detail
+    if "TARJETA AZUL" in t:
+        return "blue_card", None
+    if "TARJETA AMARILLA" in t:
+        return "yellow_card", None
+    if "TARJETA ROJA" in t or "ROJA" == t:
+        return "red_card", None
+    if "PENALTI" in t or "PENALTI PARA" in t:
+        return "penalty_awarded", None
+    if "FALTA DIRECTA PARA" in t:
+        return "free_direct_awarded", None
+    if t.startswith("FALTA"):
+        return "foul", None
+    if "NO HAY GOL" in t:
+        return "no_goal", None
+    if "TIEMPO MUERTO" in t:
+        return "timeout", None
+    return "other", text.strip()
+
+
+def _strip_lang_labels(fragment: str) -> str:
+    """Treu els <span class='lang_label ...'>.../</span> multillengua."""
+    return re.sub(
+        r"<span[^>]*class='[^']*lang_label[^']*'[^>]*>.*?</span>\s*",
+        "",
+        fragment,
+        flags=re.DOTALL,
+    )
+
+
+def parse_match_sheet(html: str) -> Optional[SidgadMatchSheet]:
+    """Parseja la fitxa de partit (resum + acta). None si no és una fitxa."""
+    if 'id="game_report_inicidencias"' not in html and 'id="div_acta"' not in html:
+        return None
+
+    def _txt(re_pat: str, flags: int = 0) -> Optional[str]:
+        m = re.search(re_pat, html, flags)
+        return m.group(1).strip() if m else None
+
+    venue = _txt(r"LUGAR DE CELEBRACI\u00d3N</span>.*?</td>\s*<td colspan=\"2\">\s*([^<]+)", re.S)
+    locality = _txt(r"LOCALIDAD</span>.*?</td>\s*<td[^>]*>\s*([^<]+)", re.S)
+    # Capçalera del resum (mateixa taula que el marcador)
+    venue2 = _txt(r'<td width="40%" style="text-align: center[^"]*">\s*([^<]+?)\s*<br>')
+    if venue is None:
+        venue = venue2
+    date_str = _txt(r"(\d{2}/\d{2}/\d{4})\s*-\s*\d{1,2}:\d{2}")
+    time_str = _txt(r"\d{2}/\d{2}/\d{4}\s*-\s*(\d{1,2}:\d{2})")
+    home = _txt(r'class="nombre1">\s*([^<]+?)\s*</div>')
+    away = _txt(r'class="nombre2">\s*([^<]+?)\s*</div>')
+    hs = _txt(r'id="home_score"[^>]*>\s*(\d+)')
+    as_ = _txt(r'id="away_score"[^>]*>\s*(\d+)')
+
+    # Àrbitres: bloc ARBITRAJE del resum
+    referees: list[tuple[str, str]] = []
+    arb = re.search(
+        r"ARBITRATGE</span>\s*</span>\s*<br>\s*(.*?)</td>", html, re.S
+    )
+    if not arb:
+        arb = re.search(r"ARBITRAJE</span>\s*<br>\s*(.*?)</td>", html, re.S)
+    if arb:
+        chunk = re.sub(r"<[^>]+>", "\n", arb.group(1))
+        names = [n.strip() for n in chunk.split("\n")]
+        names = [n for n in names if n and not n.upper().startswith("ARBITR")]
+        for i, n in enumerate(names):
+            referees.append((n, "main" if i < 2 else "aux"))
+
+    # Incidències: NOMÉS la primera taula dins game_report_inicidencias
+    # (després n'hi ha d'altres: golejadors, estadístiques...)
+    events: list[SheetEvent] = []
+    i = html.find('id="game_report_inicidencias"')
+    if i >= 0:
+        seg = html[i:html.find('id="div_acta"')]
+        t_end = seg.find("</table>")
+        inc = seg[:t_end] if t_end >= 0 else seg
+        for r in re.findall(r"<tr>(.*?)</tr>", inc, re.S):
+            period = re.search(
+                r'game_view_indcidencias_period">\s*([^<]+)', r)
+            clock = re.search(r'game_view_incidencias_time">\s*([^<]+)', r)
+            tid = re.search(r'team_id="(\d+)"', r)
+            dorsal = re.search(
+                r'game_view_incidencias_dorsal[^>]*>\s*(\d+)', r)
+            score = re.search(
+                r'game_view_incidencias_result">\s*([^<]+?)\s*</div>', r)
+            pl = re.search(r'id_player="(\d+)"[^>]*>(.*?)</a>', r, re.S)
+            id_player = pl.group(1) if pl else None
+            surname, given = "", ""
+            if pl:
+                nm = _strip_lang_labels(pl.group(2))
+                texts = [t.strip() for t in re.split(r"<[^>]+>", nm)]
+                texts = [t for t in texts if t]
+                if texts:
+                    surname = texts[0]
+                    given = texts[1] if len(texts) > 1 else ""
+            # text de l'event: tots els spans lang_es de la fila units
+            # (ex: 'GOL' + ' - FALTA DIRECTA' en un segon span o fora
+            # dels spans, segons la versió del fragment)
+            ev_m = re.search(r"class=\"evento_\w+\"[^>]*>(.*?)</div>", r, re.S)
+            ev_txt = ""
+            if ev_m:
+                cell = ev_m.group(1)
+                # text fora dels spans (pot ser el detall o el nom d'equip)
+                outside = re.sub(r"<span[^>]*>.*?</span>", " ", cell, flags=re.DOTALL)
+                outside_txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", outside)).strip()
+                es_texts = re.findall(r"lang_es'>([^<]+)</span>", cell)
+                # uneix: parts lang_es + text exterior; el nom de l'equip
+                # que apareix a l'exterior queda filtrat per _norm_event
+                ev_txt = "".join(es_texts) + " " + outside_txt
+            if ev_txt:
+                etype, detail = _norm_event(ev_txt)
+            else:
+                etype, detail = "other", None
+            # text brut per auditories
+            raw = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r)).strip()
+            events.append(SheetEvent(
+                period=period.group(1).strip() if period else None,
+                clock=clock.group(1).strip() if clock else None,
+                team_entry_id=tid.group(1) if tid else None,
+                event_type=etype,
+                detail=detail,
+                dorsal=dorsal.group(1) if dorsal else None,
+                id_player=id_player if id_player and id_player != "0" else None,
+                surname=surname,
+                given_name=given,
+                score_after=score.group(1).strip() if score else None,
+                raw_text=raw[:200],
+            ))
+
+    # Acta: alineacions. Capçaleres 'Local'/'Visitante' separen els blocs.
+    home_lineup: list[SheetLineupRow] = []
+    away_lineup: list[SheetLineupRow] = []
+    i = html.find('id="div_acta"')
+    if i >= 0:
+        acta = html[i:]
+        # Punts de tall: la capçalera d'equip és un <td> amb el nom
+        # 'NOM (gols)' just després de la cel·la Local/Visitante.
+        # Cerca literal per etapes: ràpida i sense backtracking.
+        TEAM_HEADER_RE = re.compile(
+            r"width=\"50%\"[^>]*>\s*([^<]+?)\s*\(\d+\)\s*</td>"
+        )
+        marks = list(TEAM_HEADER_RE.finditer(acta))
+
+        def _parse_lineup_rows(block: str) -> list[SheetLineupRow]:
+            rows: list[SheetLineupRow] = []
+            for r in re.findall(r"<tr>(.*?)</tr>", block, re.S):
+                cells = re.findall(r"<td[^>]*>(.*?)</td>", r, re.S)
+                if len(cells) < 5:
+                    continue
+                flat = [re.sub(r"<[^>]+>", "", c).strip()
+                        for c in cells]
+                # estructura: dorsal | (5) | P | C | 'OKM - NOM' | gols | ...
+                m = re.match(r"([A-Z]{2,4})\s*-\s*(.+)", flat[4])
+                if not m:
+                    continue
+                rows.append(SheetLineupRow(
+                    dorsal=flat[0] or None,
+                    license_code=m.group(1),
+                    name=m.group(2).strip(),
+                    is_goalkeeper=flat[2].upper().startswith("P"),
+                    is_captain=flat[3].upper().startswith("C"),
+                ))
+            return rows
+
+        if len(marks) >= 2:
+            home_lineup = _parse_lineup_rows(
+                acta[marks[0].end():marks[1].start()])
+            away_lineup = _parse_lineup_rows(acta[marks[1].end():])
+        elif len(marks) == 1:
+            home_lineup = _parse_lineup_rows(acta[marks[0].end():])
+
+    return SidgadMatchSheet(
+        venue=venue, locality=locality,
+        date_str=date_str, time_str=time_str,
+        home_name=home or "", away_name=away or "",
+        home_score=int(hs) if hs else None,
+        away_score=int(as_) if as_ else None,
+        referees=referees,
+        events=events,
+        home_lineup=home_lineup,
+        away_lineup=away_lineup,
+    )
+
+
+def parse_squads(html: str) -> list[SheetPlayerRef]:
+    """Parseja plantilles d'una edició (stats_1_{idc}.php, tipo_stats=plantillas).
+
+    Retorna la llista de (id_player, team_entry_id, cognom, nom) de l'edició:
+    és el pont entre les alineacions de l'acta (noms) i els id_player.
+    """
+    out: list[SheetPlayerRef] = []
+    seen: set[tuple[str, str]] = set()
+    for m in re.finditer(
+        r'id_player="(\d+)"[^>]*player_name\s*=\s*"([^"]*)"[^>]*team_id="(\d+)"',
+        html,
+    ):
+        id_player, full, team_id = m.group(1), m.group(2), m.group(3)
+        if (id_player, team_id) in seen:
+            continue
+        seen.add((id_player, team_id))
+        full = full.replace("\t", " ").strip()
+        if "," in full:
+            surname, given = full.split(",", 1)
+        else:
+            surname, given = full, ""
+        out.append(SheetPlayerRef(
+            id_player=id_player, team_entry_id=team_id,
+            surname=surname.strip(), given_name=given.strip(),
+        ))
+    return out

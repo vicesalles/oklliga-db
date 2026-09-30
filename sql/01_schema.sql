@@ -308,6 +308,20 @@ CREATE TABLE team_match_stat (
     UNIQUE (match_id, team_id, stat_key)
 );
 
+-- Àrbitres: entitats persistents + designació per partit
+CREATE TABLE referee (
+    referee_id  serial PRIMARY KEY,
+    full_name   text NOT NULL UNIQUE,
+    notes       text
+);
+
+CREATE TABLE match_referee (
+    match_id    integer NOT NULL REFERENCES match(match_id) ON DELETE CASCADE,
+    referee_id  integer NOT NULL REFERENCES referee(referee_id),
+    role        text NOT NULL DEFAULT 'main',
+    PRIMARY KEY (match_id, referee_id, role)
+);
+
 -- ---------------------------------------------------------------------
 -- 8. JUGADORS: mateix patró que clubs (entitat persistent + historial
 --    de noms) i vincle temporal club-jugador (plantilles/fitxatges)
