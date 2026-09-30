@@ -301,3 +301,22 @@ class TestClassification:
         assert last.diff == -53
         # la capçalera (11 <th>) no genera fila: només 3 de vàlides
         assert [st.position for st in sts] == [1, 2, 14]
+
+    def test_parse_classification_with_penalty(self):
+        # Cas real 2025/26: CH CALDES amb columna PEN addicional.
+        # La fila amb 12 valors conserva GF-GC com a diff i parseja PEN.
+        html = """<table class="tabla_standard tabla_clasif">
+<tr><th colspan="3"></th><th>PT</th><th>PJ</th><th>PG</th><th>PE</th><th>PP</th><th>GF</th><th>GC</th><th>DIFF</th><th>PEN</th></tr>
+<tr><td>12</td><td>CH CALDES RECAM LÀSER</td><td>CHC</td><td>15</td><td>26</td><td>4</td><td>6</td><td>16</td><td>50</td><td>96</td><td>-46</td><td>-3</td></tr>
+<tr><td>1</td><td>BARÇA</td><td>FCB</td><td>71</td><td>26</td><td>23</td><td>2</td><td>1</td><td>123</td><td>44</td><td>79</td><td>0</td></tr>
+</table>
+"""
+        sts = parse_classification(html)
+        assert len(sts) == 2
+        caldes = sts[0]
+        assert caldes.position == 12
+        assert caldes.points == 15
+        assert (caldes.goals_for, caldes.goals_against, caldes.diff) == (50, 96, -46)
+        assert caldes.penalty == -3
+        assert sts[1].penalty == 0
+        assert sts[1].diff == 79

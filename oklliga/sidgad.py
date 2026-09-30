@@ -304,6 +304,7 @@ class SidgadStanding:
     goals_for: int
     goals_against: int
     diff: int
+    penalty: int = 0
 
 
 def parse_classification(html: str) -> list[SidgadStanding]:
@@ -317,7 +318,11 @@ def parse_classification(html: str) -> list[SidgadStanding]:
     standings = []
     for m in TR_RE.finditer(html):
         texts = [t.strip() for t in re.findall(r">([^<>]+)<", m.group(0)) if t.strip()]
-        if len(texts) != 11:
+        # 11 valors: pos, nom, sigles, PT, PJ, PG, PE, PP, GF, GC, DIFF.
+        # 12 valors: afegeix la penalització (PEN) al final; la PT ja
+        # és la oficial amb la penalització aplicada (ex: CH CALDES
+        # 2025/26: -46 de diferència però -3 mostrat, 15 pts).
+        if len(texts) not in (11, 12):
             continue
         try:
             st = SidgadStanding(
@@ -332,6 +337,7 @@ def parse_classification(html: str) -> list[SidgadStanding]:
                 goals_for=int(texts[8]),
                 goals_against=int(texts[9]),
                 diff=int(texts[10]),
+                penalty=int(texts[11]) if len(texts) == 12 else 0,
             )
         except ValueError:
             continue

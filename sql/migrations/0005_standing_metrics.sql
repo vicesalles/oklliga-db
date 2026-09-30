@@ -77,7 +77,10 @@ GROUP BY sc.season_competition_id, s.start_year, s.label, sc.name_used,
 -- resolucions disciplinàries, walkovers o errors de font/ingesta.
 -- Vista de control de qualitat: hauria de ser buida en una temporada
 -- tancada i conciliada.
-CREATE OR REPLACE VIEW v_standing_discrepancies AS
+-- Afegir columnes a una vista existent requereix DROP + CREATE
+DROP VIEW IF EXISTS v_standing_discrepancies;
+
+CREATE VIEW v_standing_discrepancies AS
 SELECT
     vs.season,
     vs.competition,

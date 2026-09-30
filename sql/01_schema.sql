@@ -216,6 +216,9 @@ CREATE TABLE participation (
     losses               smallint,
     goals_for            smallint,
     goals_against        smallint,
+    -- Punts retirats per resolució disciplinària (columna PEN de la
+    -- classificació oficial); els punts oficials ja els inclouen
+    penalty_points       smallint NOT NULL DEFAULT 0,
     notes                text,
     UNIQUE (season_competition_id, team_id)
 );
@@ -490,6 +493,7 @@ SELECT
     vs.played        AS calc_played,
     p.points         AS official_points,
     vs.points_calc   AS calc_points,
+    p.penalty_points AS penalty_points,
     vs.wins          AS calc_wins,
     p.wins           AS official_wins,
     vs.draws         AS calc_draws,
