@@ -10,7 +10,7 @@ from oklliga import OkLligaDB
 from oklliga.audit import ClubAuditor
 from oklliga.resolution import NameResolver, normalize_name
 
-from test_client import dsn  # fixture compartida
+
 
 
 def test_normalize_name():

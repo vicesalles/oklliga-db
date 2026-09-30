@@ -257,18 +257,23 @@ class OkLligaDB:
         season_id: int,
         name_used: str,
         fmt: Optional[str] = None,
+        stage: str = "regular",
     ) -> int:
-        """Instància d'una competició en una temporada (idempotent)."""
+        """Instància d'una competició en una temporada (idempotent).
+
+        `stage` distingeix fase regular ('regular') de play-offs
+        ('playoff') dins la mateixa temporada.
+        """
         c = self.conn.cursor()
         c.execute(
             """
-            INSERT INTO season_competition (competition_id, season_id, name_used, format)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (competition_id, season_id) DO UPDATE
+            INSERT INTO season_competition (competition_id, season_id, name_used, format, stage)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (competition_id, season_id, stage) DO UPDATE
                 SET name_used = EXCLUDED.name_used, format = EXCLUDED.format
             RETURNING season_competition_id
             """,
-            (competition_id, season_id, name_used, fmt),
+            (competition_id, season_id, name_used, fmt, stage),
         )
         return c.fetchone()["season_competition_id"]
 
