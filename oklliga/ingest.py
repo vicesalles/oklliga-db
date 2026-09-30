@@ -140,6 +140,7 @@ class SidgadIngest:
         teams: list[SidgadTeam],
         club_by_team_entry: dict[str, int],
         season_start_year: int,
+        stage: str = "regular",
     ) -> dict[str, int]:
         """Descarrega i ingereix tot el calendari d'una edició.
 
@@ -173,7 +174,8 @@ class SidgadIngest:
             home_team = self.db.upsert_team(home_club, "first")
             away_team = self.db.upsert_team(away_club, "first")
             self._upsert_match(
-                m, season_competition_id, home_team, away_team, season_start_year
+                m, season_competition_id, home_team, away_team, season_start_year,
+                stage=stage,
             )
             counts["matches"] += 1
 
@@ -338,6 +340,7 @@ class SidgadIngest:
         home_team: int,
         away_team: int,
         season_start_year: int,
+        stage: str = "regular",
     ) -> None:
         played = m.home_goals is not None and m.away_goals is not None
         gd = m.gamedate
@@ -352,7 +355,7 @@ class SidgadIngest:
                 home_team_id, away_team_id, home_goals, away_goals,
                 source_id, source_url, source_ref, confidence, result_type, notes
             ) VALUES (
-                %(sc)s, %(round)s, 'regular', %(md)s, %(st)s,
+                %(sc)s, %(round)s, %(stage)s, %(md)s, %(st)s,
                 %(h)s, %(a)s, %(hg)s, %(ag)s,
                 %(src)s, %(surl)s, %(sref)s, 'high', %(rt)s, %(notes)s
             )
@@ -361,6 +364,7 @@ class SidgadIngest:
             {
                 "sc": season_competition_id,
                 "round": m.round,
+                "stage": stage,
                 "md": matchday,
                 "st": "played" if played else "scheduled",
                 "h": home_team,
@@ -374,6 +378,28 @@ class SidgadIngest:
                 "notes": m.raw_attrs.get("notes"),
             },
         )
+        if c.rowcount == 0 and played:
+            c.execute(
+                """
+                UPDATE match
+                SET status = 'played',
+                    home_goals = COALESCE(%(hg)s, match.home_goals),
+                    away_goals = COALESCE(%(ag)s, match.away_goals),
+                    matchday_date = COALESCE(%(md)s, match.matchday_date),
+                    source_ref = COALESCE(%(sref)s, match.source_ref),
+                    notes = COALESCE(%(notes)s, match.notes)
+                WHERE season_competition_id = %(sc)s
+                  AND home_team_id = %(h)s AND away_team_id = %(a)s
+                  AND (
+                      (round IS NOT NULL AND round = %(round)s)
+                      OR (round IS NULL AND matchday_date = %(md)s)
+                  )
+                """,
+                {"hg": m.home_goals, "ag": m.away_goals, "md": matchday,
+                 "sref": m.idp, "notes": m.raw_attrs.get("notes"),
+                 "sc": season_competition_id, "h": home_team, "a": away_team,
+                 "round": m.round},
+            )
         if m.idp and m.idp.isdigit():
             # match_id per l'external_id: busca'l per (sc, ref)
             c.execute(

@@ -189,13 +189,18 @@ CREATE TABLE season (
 );
 
 -- La instància concreta d'una competició en una temporada
+-- stage distingeix fase regular, play-off (títol), play-off 9-10 i
+-- play-out: fases amb idc SIDGAD diferents dins la mateixa temporada.
 CREATE TABLE season_competition (
     season_competition_id serial PRIMARY KEY,
     competition_id        integer NOT NULL REFERENCES competition(competition_id),
     season_id             integer NOT NULL REFERENCES season(season_id),
     name_used             text NOT NULL,   -- nom oficial usat aquella temporada
     format                text,            -- 'lliga regular', 'lliga + playoff', etc.
-    UNIQUE (competition_id, season_id)
+    stage                 text NOT NULL DEFAULT 'regular'
+                           CHECK (stage IN ('regular', 'playoff', 'playoff910',
+                                            'playout', 'other')),
+    UNIQUE (competition_id, season_id, stage)
 );
 
 -- ---------------------------------------------------------------------

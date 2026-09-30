@@ -68,7 +68,7 @@ class SidgadMatch:
     (CPV pot ser Voltregà, Vilafranca, Vic, Vilanova... entre edicions).
     """
 
-    round: Optional[int]
+    round: Optional[int]      # jornada (regular) o partit de la sèrie (play-off)
     gamedate: str          # 'YYYYMMDD'
     time: Optional[str]     # 'HH:MM' local, sense zona confirmada
     home_name: str
@@ -80,6 +80,7 @@ class SidgadMatch:
     home_goals: Optional[int]
     away_goals: Optional[int]
     idp: Optional[str]      # id de fitxa de partit
+    round_label: Optional[str] = None  # 'CUARTOS', 'SEMIFINALES', 'FINAL'...
     raw_attrs: dict[str, str] = field(default_factory=dict)
 
 
@@ -219,6 +220,26 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
         return int(v)
 
     texts = [t.strip() for t in re.findall(r">([^<>]+)<", tr_html) if t.strip()]
+    # Cel·la jor_in_games: 'JORNADA 5' (regular) o '1 CUARTOS' /
+    # 'PARTIDO 2' (play-off). És la font autoritativa de ronda i NO
+    # és un nom d'equip: cal excloure-la dels candidats a nom.
+    jor_m = re.search(
+        r"jor_in_games[^>]*>\s*([^<]*?)\s*<", tr_html, re.IGNORECASE
+    )
+    jor_text = jor_m.group(1).strip() if jor_m else ""
+    round_label = None
+    series_game = None
+    if jor_text:
+        jm = re.match(r"JORNADA\s*(\d+)", jor_text, re.IGNORECASE)
+        pm = re.match(r"PARTIDO\s*(\d+)", jor_text, re.IGNORECASE)
+        sm = re.match(r"(\d+)\s+(\S.*)", jor_text)
+        if jm:
+            rnd = int(jm.group(1))
+        elif pm:
+            series_game = int(pm.group(1))
+        elif sm:
+            series_game = int(sm.group(1))
+            round_label = sm.group(2).strip().upper()
     # Descarta ràpidament files que no són partits: capçaleres de jornada,
     # avisos de suspensió sense enfrontament, notes disciplinàries...
     joined = " ".join(texts).lower()
@@ -234,6 +255,8 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
     )
     name_like = []
     for t in texts:
+        if t == jor_text:
+            continue
         if score_re.match(t) or round_re.search(t):
             continue
         if re.fullmatch(r"\d{2}/\d{2}/\d{4}", t) or re.fullmatch(r"\d{1,2}:\d{2}", t):
@@ -260,7 +283,8 @@ def parse_match_row(tr_html: str) -> Optional[SidgadMatch]:
         if rm and rnd is None:
             rnd = int(rm.group(1))
     return SidgadMatch(
-        round=rnd if rnd is not None else _int(attrs.get("jornada")),
+        round=rnd if rnd is not None else series_game,
+        round_label=round_label,
         gamedate=attrs["gamedate"],
         time=attrs.get("hora") or None,
         home_name=home,
