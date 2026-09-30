@@ -159,6 +159,16 @@ def main() -> None:
         print(f"Partits ingestats: {counts['matches']}")
         print(f"Omesos (club sense identificar): {counts['queued']} → cua pending")
 
+        # Classificació final de l'edició (posició i punts per equip)
+        scounts = ing.ingest_classification(
+            idc=idc,
+            season_competition_id=sc,
+            teams=teams,
+            club_by_team_entry=club_by_entry,
+        )
+        print(f"Classificació: {scounts['resolved']}/{scounts['rows']} equips "
+              f"(posició i punts actualitzats)")
+
         c = db.conn.cursor()
         c.execute(
             "SELECT count(*) AS n FROM pending_name_resolution "

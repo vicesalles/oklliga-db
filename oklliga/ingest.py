@@ -21,10 +21,12 @@ from .client import OkLligaDB
 from .sidgad import (
     SidgadClient,
     SidgadMatch,
+    SidgadStanding,
     SidgadTeam,
     body_hash,
     parse_calendar,
     parse_catalog_teams,
+    parse_classification,
 )
 
 PARSER_VERSION = "sidgad-v0"
@@ -93,7 +95,7 @@ class SidgadIngest:
             INSERT INTO external_id (source_id, entity_type, internal_id, external_id)
             VALUES (%(s)s, %(t)s, %(i)s, %(e)s)
             ON CONFLICT (source_id, entity_type, external_id) DO UPDATE
-                SET internal_id = EXCLUDED.internal_id, fetched_at = now()
+                SET fetched_at = now()
             """,
             {"s": self.source_id, "t": entity_type, "i": internal_id, "e": external_id},
         )
@@ -176,6 +178,79 @@ class SidgadIngest:
             counts["matches"] += 1
 
         self._enqueue_unresolved(resolver_queue)
+        return counts
+
+    def ingest_classification(
+        self,
+        idc: int,
+        season_competition_id: int,
+        teams: list[SidgadTeam],
+        club_by_team_entry: dict[str, int],
+    ) -> dict[str, int]:
+        """Descarrega i ingereix la classificació final de l'edició.
+
+        La taula de classificació NO té team_id: es resol el nom visible
+        contra el teams_array de la mateixa edició (nom exacte). Guarda
+        final_position i points a participation; les mètriques detallades
+        (PJ/PG/PE/PP/GF/GC) van a team_match_stat per partida de mineria.
+
+        Retorna {'rows': n, 'resolved': n, 'queued': n}.
+        """
+        endpoint = f"rfep/rfep_clasif_idc_{idc}_1.php"
+        body = self.client.fetch_classification(idc)
+        self.store_snapshot(endpoint, body, {"idc": str(idc)})
+        standings = parse_classification(body)
+
+        # Índex nom exacte -> team_entry_id dins l'edició
+        entry_by_name = {t.name.strip().upper(): t.team_entry_id for t in teams}
+
+        counts = {"rows": 0, "resolved": 0, "queued": 0}
+        queue: list[tuple[str, dict]] = []
+        c = self.db.conn.cursor()
+        for st in standings:
+            counts["rows"] += 1
+            entry = entry_by_name.get(st.name.strip().upper())
+            club_id = club_by_team_entry.get(entry) if entry else None
+            team_id = None
+            if club_id:
+                team_id = self.db.upsert_team(club_id, "first")
+            if team_id is None:
+                queue.append((st.name, {"idc": idc, "position": st.position}))
+                counts["queued"] += 1
+                continue
+            # Només final_position i points: les mètriques detallades
+            # (PJ/PG/PE/PP/GF/GC) ja es deriven dels partits ingestats i
+            # team_match_stat és per partit, no per edició. El snapshot
+            # cru de la classificació queda a raw_snapshot per si cal.
+            with self.db.transaction():
+                c.execute(
+                    """
+                    UPDATE participation
+                    SET final_position = %(pos)s, points = %(pts)s
+                    WHERE season_competition_id = %(sc)s AND team_id = %(team)s
+                    """,
+                    {"pos": st.position, "pts": st.points,
+                     "sc": season_competition_id, "team": team_id},
+                )
+                if c.rowcount == 0:
+                    # Cap participació registrada (seed no executat):
+                    # la creem per no perdre la classificació
+                    c.execute(
+                        """
+                        INSERT INTO participation
+                            (season_competition_id, team_id, final_position, points,
+                             notes)
+                        VALUES (%(sc)s, %(team)s, %(pos)s, %(pts)s,
+                                'Creada per la classificació')
+                        ON CONFLICT (season_competition_id, team_id) DO UPDATE
+                            SET final_position = EXCLUDED.final_position,
+                                points = EXCLUDED.points
+                        """,
+                        {"sc": season_competition_id, "team": team_id,
+                         "pos": st.position, "pts": st.points},
+                    )
+            counts["resolved"] += 1
+        self._enqueue_unresolved(queue)
         return counts
 
     def _resolve_side(

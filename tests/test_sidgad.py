@@ -12,6 +12,7 @@ from oklliga.sidgad import (
     SidgadTeam,
     body_hash,
     parse_calendar,
+    parse_classification,
     parse_teams_array,
 )
 from oklliga.ingest import SidgadIngest, PARSER_VERSION
@@ -272,3 +273,31 @@ class TestFilials:
                 )
             # Idempotència: reinsertar 'B' no duplica ni falla
             assert db.upsert_team(club, "B") > 0
+
+
+CLASIF_HTML = """
+<table class="tabla_standard tabla_clasif">
+<tr><th colspan="3"></th><th>PT</th><th>PJ</th><th>PG</th><th>PE</th><th>PP</th><th>GF</th><th>GC</th><th>DIFF</th></tr>
+<tr><td>1</td><td>BARÇA</td><td>FCB</td><td>71</td><td>26</td><td>23</td><td>2</td><td>1</td><td>123</td><td>44</td><td>79</td></tr>
+<tr><td>2</td><td>DEPORTIVO LICEO</td><td>HCL</td><td>58</td><td>26</td><td>19</td><td>1</td><td>6</td><td>86</td><td>57</td><td>29</td></tr>
+<tr><td>14</td><td>PATÍ VIC</td><td>VIC</td><td>15</td><td>26</td><td>4</td><td>3</td><td>19</td><td>50</td><td>103</td><td>-53</td></tr>
+</table>
+"""
+
+
+class TestClassification:
+    def test_parse_classification(self):
+        sts = parse_classification(CLASIF_HTML)
+        assert len(sts) == 3
+        first = sts[0]
+        assert first.position == 1
+        assert first.name == "BARÇA"
+        assert first.abbr == "FCB"
+        assert first.points == 71
+        assert first.played == 26
+        assert (first.wins, first.draws, first.losses) == (23, 2, 1)
+        assert (first.goals_for, first.goals_against, first.diff) == (123, 44, 79)
+        last = sts[2]
+        assert last.diff == -53
+        # la capçalera (11 <th>) no genera fila: només 3 de vàlides
+        assert [st.position for st in sts] == [1, 2, 14]

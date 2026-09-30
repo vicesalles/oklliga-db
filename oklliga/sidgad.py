@@ -150,6 +150,14 @@ class SidgadClient:
             min_bytes=200,
         )
 
+    def fetch_classification(self, idc: int) -> str:
+        """Classificació de l'edició (tabla_clasif)."""
+        return self.fetch(
+            f"rfep/rfep_clasif_idc_{idc}_1.php",
+            params={"idc": str(idc)},
+            min_bytes=200,
+        )
+
     def fetch_match_sheet(self, idp: int, idm: int = 1) -> str:
         """Fitxa de partit (acta) des del seu idp."""
         return self.fetch(
@@ -279,6 +287,56 @@ def parse_calendar(html: str) -> list[SidgadMatch]:
         if parsed is not None:
             matches.append(parsed)
     return matches
+
+
+@dataclass
+class SidgadStanding:
+    """Una fila de la classificació: pos, nom, sigles i mètriques."""
+
+    position: int
+    name: str
+    abbr: str
+    points: int
+    played: int
+    wins: int
+    draws: int
+    losses: int
+    goals_for: int
+    goals_against: int
+    diff: int
+
+
+def parse_classification(html: str) -> list[SidgadStanding]:
+    """Parseja la taula de classificació de l'edició.
+
+    Cada fila té 11 textos: pos, nom, sigles, PT, PJ, PG, PE, PP,
+    GF, GC, DIFF. El nom visible és el de l'edició (amb patrocinador)
+    i cal resoldre'l contra el teams_array (no hi ha team_id a la
+    classificació).
+    """
+    standings = []
+    for m in TR_RE.finditer(html):
+        texts = [t.strip() for t in re.findall(r">([^<>]+)<", m.group(0)) if t.strip()]
+        if len(texts) != 11:
+            continue
+        try:
+            st = SidgadStanding(
+                position=int(texts[0]),
+                name=texts[1],
+                abbr=texts[2],
+                points=int(texts[3]),
+                played=int(texts[4]),
+                wins=int(texts[5]),
+                draws=int(texts[6]),
+                losses=int(texts[7]),
+                goals_for=int(texts[8]),
+                goals_against=int(texts[9]),
+                diff=int(texts[10]),
+            )
+        except ValueError:
+            continue
+        standings.append(st)
+    return standings
 
 
 def parse_catalog_teams(html: str, idc: int) -> list[SidgadTeam]:

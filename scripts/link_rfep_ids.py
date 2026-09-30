@@ -51,7 +51,17 @@ def normalize(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-# Àlies coneguts que la similitud no pot resoldre (sigla -> canònic)
+# Paraules genèriques del món del club que NO poden generar coincidència
+# per si soles ('CLUB', 'HOQUEI', 'PATÍ', 'DEPORTIU'...). Una proposta per
+# token compartit exigeix almenys un token NO genèric en comú.
+GENERIC_WORDS = {
+    "club", "hockey", "hoquei", "pati", "cp", "hc", "ch", "ce", "deportiu",
+    "deportivo", "esportiu", "esportivo", "atletic", "atletico", "femeni",
+    "basquet", "patins",
+}
+
+
+# Àlies coneguts que la similitut no pot resoldre (sigla -> canònic)
 ALIAS_HINTS = {
     "bara": "FC BARCELONA",        # BARÇA (la ç desapareix en normalitzar)
     "barca": "FC BARCELONA",
@@ -87,15 +97,16 @@ def propose_matches(
             proposals[t.team_entry_id] = (index[normalize(hint)], normalize(hint), 0.99)
             used_clubs.add(index[normalize(hint)])
             continue
-        # Coincidència de tokens: tots els tokens significatius del nom de
-        # l'edició apareixen al nom del club ('DEPORTIVO LICEO' dins
-        # 'HOCKEY CLUB LICEO', 'SANT JUST' dins 'HC SANT JUST'...)
-        toks = [w for w in key.split() if len(w) > 2]
+        # Coincidència de tokens: tots els tokens significatius del nom
+        # de l'edició apareixen al nom del club ('DEPORTIVO LICEO' dins
+        # 'HOCKEY CLUB LICEO' -> 'LICEO'; 'SANT JUST' dins 'HC SANT JUST').
+        # Els tokens genèrics (club, hockey...) no compten.
+        toks = [w for w in key.split() if len(w) > 2 and w not in GENERIC_WORDS]
         if toks:
             for norm, cid in index.items():
                 if cid in used_clubs:
                     continue
-                if toks and all(w in norm.split() for w in toks):
+                if all(w in norm.split() for w in toks):
                     proposals[t.team_entry_id] = (cid, norm, 0.90)
                     used_clubs.add(cid)
                     break
@@ -103,7 +114,8 @@ def propose_matches(
                 continue
         # Token distintiu compartit ('LICEO', 'JUST'): proposem amb
         # confiança mitjana; l'humà ho confirma (amb --yes no s'accepta)
-        toks2 = [w for w in key.split() if len(w) >= 4]
+        toks2 = [w for w in key.split()
+                 if len(w) >= 4 and w not in GENERIC_WORDS]
         if toks2:
             for norm, cid in index.items():
                 if cid in used_clubs:
@@ -166,12 +178,16 @@ def main() -> None:
 
         # Ja enllaçats?
         c.execute("""
-            SELECT external_id FROM external_id
+            SELECT external_id, internal_id FROM external_id
             WHERE source_id = %s AND entity_type = 'club'
         """, (src,))
         already = {r["external_id"] for r in c.fetchall()}
+        linked_clubs = {r["internal_id"] for r in c.fetchall()}
 
-        proposals = propose_matches(teams, club_names)
+        proposals = {
+            eid: p for eid, p in propose_matches(teams, club_names).items()
+            if p[0] not in linked_clubs
+        }
 
         print("\nProposta d'enllaç (team_entry_id -> club):")
         accepted: list[tuple[str, int]] = []
